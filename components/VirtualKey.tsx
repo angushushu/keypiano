@@ -101,6 +101,21 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
     if (!isDummy) onMouseUp(code);
   };
 
+  // Glissando / Swipe Logic
+  const handleMouseEnter = (e: React.MouseEvent) => {
+    // If mouse button is held down (buttons === 1) and we enter a key, trigger it
+    if (e.buttons === 1 && !isDummy) {
+        onMouseDown(code);
+    }
+  };
+
+  const handleMouseLeave = (e: React.MouseEvent) => {
+      // If mouse button is held down and we leave a key, release it
+      if (e.buttons === 1 && !isDummy) {
+          onMouseUp(code);
+      }
+  };
+
   // Render dots for Jianpu
   const renderDots = (count: number) => {
       if (count === 0) return <div className="h-[2px] sm:h-[4px]"></div>;
@@ -119,7 +134,8 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
         style={style}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onMouseLeave={handleMouseLeave} // Updated for swipe
+        onMouseEnter={handleMouseEnter} // Updated for swipe
         onTouchStart={(e) => { e.preventDefault(); handleMouseDown(); }}
         onTouchEnd={(e) => { e.preventDefault(); handleMouseUp(); }}
     >

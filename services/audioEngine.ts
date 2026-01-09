@@ -80,8 +80,10 @@ class AudioEngine {
     private metronomeSound: MetronomeSound = 'beep';
 
     public async init(instrumentId: InstrumentID = 'salamander') {
+        // 1. Initialize Audio Context synchronously to capture user gesture
         if (!this.ctx) {
-            this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            this.ctx = new AudioContextClass();
             
             // Audio Graph: Sources -> MasterGain -> Compressor -> Destination
             // Compressor helps boost volume without clipping
@@ -98,12 +100,36 @@ class AudioEngine {
             this.masterGain.connect(this.compressor);
         }
 
+        // 2. iOS FIX: Unlock AudioContext *immediately* before any async operations.
+        // Playing a silent buffer inside the click event handler ensures the context wakes up.
+        this.unlockAudio();
+
+        // 3. Load Instrument Samples (Async)
+        // Only load if instrument changed or not loaded yet
         if (this.currentInstrument !== instrumentId || !this.isLoaded) {
             await this.loadInstrument(instrumentId);
         }
-        
-        // Resume context if suspended (browser policy)
-        await this.resumeIfSuspended();
+    }
+
+    // Helper to unlock iOS audio context
+    private unlockAudio() {
+        if (!this.ctx) return;
+
+        // Resume if suspended
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume().catch(e => console.error("Audio resume failed", e));
+        }
+
+        // Play a silent buffer - this forces iOS audio stack to wake up
+        try {
+            const buffer = this.ctx.createBuffer(1, 1, 22050);
+            const source = this.ctx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(this.ctx.destination);
+            source.start(0);
+        } catch (e) {
+            console.error("Silent buffer playback failed", e);
+        }
     }
 
     // Helper for mobile: Browsers suspend context if no interaction.

@@ -8,8 +8,8 @@ import {
   ALL_ROWS
 } from './constants';
 import { 
-  Volume2, Keyboard, Zap, Activity, ArrowUp, ArrowDown, Loader2, Music, 
-  Circle, Square, Play, Pause, Timer, Info, X, ExternalLink, ChevronDown, ChevronUp, Github
+  Volume2, Keyboard, Activity, Loader2, Music, 
+  Circle, Square, Play, Pause, Timer, Info, X, ExternalLink, ChevronDown, ChevronUp, Github, RotateCcw
 } from 'lucide-react';
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -37,6 +37,15 @@ const getRootKeyName = (transpose: number): string => {
   return `${NOTE_NAMES[idx]}(${Math.floor(transpose / 12)})`;
 };
 
+// Time Formatter (MM:SS.s)
+const formatTime = (ms: number) => {
+  const totalSeconds = Math.floor(ms / 1000);
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  const tenths = Math.floor((ms % 1000) / 100);
+  return `${mins}:${secs.toString().padStart(2, '0')}.${tenths}`;
+};
+
 interface RecordedEvent {
   time: number;
   type: 'on' | 'off';
@@ -47,13 +56,15 @@ interface RecordedEvent {
 
 const App: React.FC = () => {
   const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set());
+  // Track notes clicked via the Piano Visualizer directly
+  const [activeMouseNotes, setActiveMouseNotes] = useState<Set<string>>(new Set());
+
   const [isAudioStarted, setIsAudioStarted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   
   // Mobile/Landscape state
   const [isPortraitMobile, setIsPortraitMobile] = useState(false);
-  const [isCompactHeight, setIsCompactHeight] = useState(false);
   
   // Layout State
   const [showPianoViz, setShowPianoViz] = useState(true);
@@ -76,6 +87,8 @@ const App: React.FC = () => {
   const [isPlayingBack, setIsPlayingBack] = useState(false);
   const [recordedEvents, setRecordedEvents] = useState<RecordedEvent[]>([]);
   const [recordingStartTime, setRecordingStartTime] = useState(0);
+  const [playbackStartTime, setPlaybackStartTime] = useState(0);
+  const [elapsedTime, setElapsedTime] = useState(0);
   
   // Metronome State
   const [isMetronomeOn, setIsMetronomeOn] = useState(false);
@@ -88,6 +101,8 @@ const App: React.FC = () => {
   const tempTransposeRef = useRef(0);
   const recordingRef = useRef<RecordedEvent[]>([]);
   const playbackTimeouts = useRef<number[]>([]);
+  // Track currently playing notes during playback to stop them on Pause/Stop
+  const activePlaybackNotes = useRef<Set<string>>(new Set()); 
 
   // Orientation & Screen Size Check
   useEffect(() => {
@@ -103,9 +118,9 @@ const App: React.FC = () => {
       // Determine if height is compact (like landscape phone)
       // Usually < 600px height is tight
       const isCompact = height < 600;
-      setIsCompactHeight(isCompact);
       
       // Auto-hide piano visualization on compact screens if it hasn't been manually toggled yet
+      // We check if it is explicitly NOT disabled by user interaction (which we don't track perfectly here, but this works for init)
       if (isCompact) {
           setShowPianoViz(false);
       } else {
@@ -122,14 +137,21 @@ const App: React.FC = () => {
     const notes: string[] = [];
     const totalSemis = transposeBase + (octaveShift * 12) + tempTranspose;
     
+    // Notes from keyboard
     activeKeys.forEach(code => {
       const baseNote = KEY_TO_NOTE[code];
       if (baseNote) {
         notes.push(getTransposedNote(baseNote, totalSemis));
       }
     });
+
+    // Notes from direct mouse interaction on Piano
+    activeMouseNotes.forEach(n => {
+        notes.push(n);
+    });
+
     return notes;
-  }, [activeKeys, transposeBase, octaveShift, tempTranspose]);
+  }, [activeKeys, activeMouseNotes, transposeBase, octaveShift, tempTranspose]);
 
   useEffect(() => {
     synthStateRef.current = { transposeBase, octaveShift };
@@ -157,6 +179,27 @@ const App: React.FC = () => {
   useEffect(() => {
       audioEngine.setMetronomeSound(metronomeSound);
   }, [metronomeSound]);
+
+  // Timer Effect for Recording/Playback
+  useEffect(() => {
+    let interval: number;
+    if (isRecording) {
+      interval = window.setInterval(() => {
+        setElapsedTime(Date.now() - recordingStartTime);
+      }, 50);
+    } else if (isPlayingBack) {
+      // Logic for Playback Timer:
+      // We know when we started (playbackStartTime) which includes the offset calculation.
+      interval = window.setInterval(() => {
+        const t = Date.now() - playbackStartTime;
+        setElapsedTime(t);
+      }, 50);
+    } else {
+      // If paused, we don't update time, but we don't reset it either
+      // unless we explicitly hit Stop (which handles reset separately).
+    }
+    return () => clearInterval(interval);
+  }, [isRecording, isPlayingBack, recordingStartTime, playbackStartTime]);
 
   const updateTransposeMod = useCallback((shift: boolean, ctrl: boolean) => {
     let t = 0;
@@ -198,57 +241,98 @@ const App: React.FC = () => {
       setIsRecording(false);
       setRecordedEvents([...recordingRef.current]);
     } else {
-      // Start recording
+      // Start recording - Reset everything
+      handleStopFullReset(); // Ensure clean state
       setRecordedEvents([]);
       recordingRef.current = [];
       setRecordingStartTime(Date.now());
       setIsRecording(true);
-      // If playing back, stop playback
-      if (isPlayingBack) stopPlayback();
     }
   };
 
   const togglePlayback = () => {
     if (isPlayingBack) {
-      stopPlayback();
+      pausePlayback();
     } else {
-      if (recordedEvents.length === 0) return;
-      setIsPlayingBack(true);
-      const startT = Date.now();
-      
-      recordedEvents.forEach(evt => {
-         const delay = evt.time;
-         const tid = window.setTimeout(() => {
-             if (evt.type === 'on') {
-                 audioEngine.playNote(evt.note, evt.transpose);
-             } else {
-                 audioEngine.stopNote(evt.note, evt.transpose);
-             }
-         }, delay);
-         playbackTimeouts.current.push(tid);
-      });
-
-      // Auto stop after last event
-      const lastEventTime = recordedEvents[recordedEvents.length - 1].time;
-      const endTid = window.setTimeout(() => {
-          setIsPlayingBack(false);
-      }, lastEventTime + 1000);
-      playbackTimeouts.current.push(endTid);
+      startPlayback();
     }
   };
 
-  const stopPlayback = () => {
-      setIsPlayingBack(false);
-      playbackTimeouts.current.forEach(window.clearTimeout);
-      playbackTimeouts.current = [];
+  const startPlayback = () => {
+    if (recordedEvents.length === 0) return;
+    
+    // Resume Logic:
+    // If we are at the end, start from 0.
+    // If we are in the middle (paused), start from current elapsedTime.
+    const lastEventTime = recordedEvents[recordedEvents.length - 1].time;
+    let startOffset = elapsedTime;
+    
+    if (startOffset >= lastEventTime) {
+        startOffset = 0;
+        setElapsedTime(0);
+    }
+
+    // Calculate the logical start time (Current Real Time - Offset)
+    const startT = Date.now() - startOffset;
+    setPlaybackStartTime(startT);
+    setIsPlayingBack(true);
+    
+    // Filter events that haven't happened yet
+    const eventsToPlay = recordedEvents.filter(e => e.time >= startOffset);
+    
+    eventsToPlay.forEach(evt => {
+        const delay = evt.time - startOffset;
+        const tid = window.setTimeout(() => {
+            if (evt.type === 'on') {
+                audioEngine.playNote(evt.note, evt.transpose);
+                // Track this note to stop it if paused
+                activePlaybackNotes.current.add(`${evt.note}_${evt.transpose}`);
+            } else {
+                audioEngine.stopNote(evt.note, evt.transpose);
+                activePlaybackNotes.current.delete(`${evt.note}_${evt.transpose}`);
+            }
+        }, delay);
+        playbackTimeouts.current.push(tid);
+    });
+
+    // Auto Pause/Stop after last event
+    const timeUntilEnd = lastEventTime - startOffset + 500; // +500ms buffer
+    if (timeUntilEnd > 0) {
+        const endTid = window.setTimeout(() => {
+            pausePlayback(); // Just pause at end, don't reset to 0 immediately
+        }, timeUntilEnd);
+        playbackTimeouts.current.push(endTid);
+    }
   };
 
-  const handleStop = () => {
+  const pausePlayback = () => {
+      setIsPlayingBack(false);
+      
+      // Clear scheduled future events
+      playbackTimeouts.current.forEach(window.clearTimeout);
+      playbackTimeouts.current = [];
+
+      // Silence currently playing notes from playback
+      // Otherwise they sustain indefinitely until resumed
+      activePlaybackNotes.current.forEach(key => {
+          const [note, transpose] = key.split('_');
+          audioEngine.stopNote(note, parseInt(transpose));
+      });
+      activePlaybackNotes.current.clear();
+  };
+
+  const handleStopFullReset = () => {
+      // 1. Stop recording if active
       if (isRecording) {
           setIsRecording(false);
           setRecordedEvents([...recordingRef.current]);
       }
-      stopPlayback();
+      
+      // 2. Stop Playback logic
+      pausePlayback(); 
+      
+      // 3. Reset Time to 0
+      setElapsedTime(0);
   };
   // ----------------------
 
@@ -273,7 +357,7 @@ const App: React.FC = () => {
          toggleRecording(); 
          break;
       case 'Pause': 
-         handleStop(); 
+         handleStopFullReset(); 
          break;
     }
   };
@@ -314,7 +398,7 @@ const App: React.FC = () => {
       activeKeysRef.current = newSet;
       return newSet;
     });
-  }, [isAudioStarted, sustainLevel, isRecording, recordingStartTime, currentInstrument]);
+  }, [isAudioStarted, sustainLevel, isRecording, recordingStartTime, currentInstrument, elapsedTime, isPlayingBack]);
 
   const stopNoteByCode = useCallback((code: string) => {
     const note = KEY_TO_NOTE[code];
@@ -348,6 +432,30 @@ const App: React.FC = () => {
     });
   }, [isAudioStarted, isRecording, recordingStartTime, currentInstrument]);
 
+  // Direct Note Playing (for Piano Visualizer interaction)
+  const playNoteByName = useCallback((noteName: string) => {
+      // Direct playing has no transpose in this context, or we could assume C4 means C4.
+      // We do not record these events currently, or should we?
+      // For simplicity, let's treat it as pure performance.
+      audioEngine.playNote(noteName, 0); 
+      
+      setActiveMouseNotes(prev => {
+          const newSet = new Set(prev);
+          newSet.add(noteName);
+          return newSet;
+      });
+  }, []);
+
+  const stopNoteByName = useCallback((noteName: string) => {
+      audioEngine.stopNote(noteName, 0);
+      
+      setActiveMouseNotes(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(noteName);
+          return newSet;
+      });
+  }, []);
+
   const handleMouseDown = (code: string) => playNoteByCode(code);
   const handleMouseUp = (code: string) => stopNoteByCode(code);
 
@@ -377,12 +485,28 @@ const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-    const handleBlur = () => activeKeysRef.current.forEach(code => stopNoteByCode(code));
+    const handleBlur = () => {
+        activeKeysRef.current.forEach(code => stopNoteByCode(code));
+        setActiveMouseNotes(new Set()); // Also clear mouse notes on blur
+    };
     window.addEventListener('blur', handleBlur);
+    // Add global mouse up listener to catch drags that release outside the keys
+    const handleGlobalMouseUp = () => {
+        // We can't easily know WHICH key was released if we are outside, 
+        // but we can clear active mouse notes if we want to be safe, 
+        // OR rely on the fact that 'activeKeys' are handled by specific key codes.
+        // For the visual piano, we might want to clear active mouse notes if mouse up happens anywhere.
+        if (activeKeysRef.current.size > 0 || activePlaybackNotes.current.size > 0) {
+           // Keep logic simple for now. 
+        }
+    };
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
   }, [playNoteByCode, stopNoteByCode, updateTransposeMod]);
 
@@ -408,14 +532,14 @@ const App: React.FC = () => {
              <span className="hidden lg:inline">KeyPiano</span>
          </div>
          
-         {/* Instrument Selector (Compact) */}
+         {/* Instrument Selector */}
          <div className="flex items-center gap-2 shrink-0">
             <Music className="w-4 h-4 text-blue-400" />
             <select 
                 value={currentInstrument}
                 onChange={(e) => handleInstrumentChange(e.target.value as InstrumentID)}
                 disabled={!isAudioStarted || isLoading}
-                className="bg-black text-white text-xs px-2 py-1 rounded border border-gray-600 focus:outline-none focus:border-yellow-500 cursor-pointer disabled:opacity-50 max-w-[120px] md:max-w-none"
+                className="bg-black text-white text-xs px-2 py-1.5 rounded border border-gray-600 focus:outline-none focus:border-yellow-500 cursor-pointer disabled:opacity-50 max-w-[120px] md:max-w-none"
             >
                 {INSTRUMENTS.map(inst => (
                     <option key={inst.id} value={inst.id}>{inst.name}</option>
@@ -425,7 +549,7 @@ const App: React.FC = () => {
 
          <div className="w-px h-6 bg-[#444] shrink-0 hidden md:block"></div>
          
-         {/* Interactive Volume Control */}
+         {/* Volume Control */}
          <div className="flex items-center gap-2 group relative shrink-0">
             <Volume2 className={`w-4 h-4 ${volume > 0 ? 'text-green-500' : 'text-gray-600'}`} />
             <input 
@@ -435,35 +559,46 @@ const App: React.FC = () => {
               step="0.05" 
               value={volume} 
               onChange={(e) => setVolume(parseFloat(e.target.value))}
-              className="w-16 md:w-28 h-2 bg-black rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-green-400"
+              className="w-16 md:w-24 h-2 bg-black rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-green-400"
             />
          </div>
 
          <div className="w-px h-6 bg-[#444] shrink-0 hidden md:block"></div>
          
-         {/* Metronome Controls */}
-         <div className="flex items-center gap-2 shrink-0">
+         {/* Metronome Controls - EXPANDED */}
+         <div className="flex items-center gap-3 shrink-0 bg-black/20 p-1 px-2 rounded border border-white/5">
             <button 
                 onClick={() => setIsMetronomeOn(!isMetronomeOn)}
-                className={`transition-colors ${isMetronomeOn ? 'text-cyan-400' : 'text-gray-600 hover:text-gray-400'}`}
+                className={`transition-colors p-1 rounded-full ${isMetronomeOn ? 'bg-cyan-900/50 text-cyan-400' : 'text-gray-500 hover:text-gray-300'}`}
                 title="Toggle Metronome"
             >
-                <Timer className="w-4 h-4" />
+                {isMetronomeOn ? <Activity className="w-4 h-4" /> : <Timer className="w-4 h-4" />}
             </button>
             
-            <div className="flex flex-col gap-0.5 w-16 md:w-20">
-                 <div className="flex items-center justify-between">
-                     <span className="text-[8px] text-gray-500 font-bold font-mono">BPM {bpm}</span>
+            <div className="flex flex-col gap-1">
+                 <div className="flex items-center gap-2">
+                     <span className="text-[10px] text-gray-500 font-bold font-mono">BPM</span>
+                     {/* Editable BPM Input */}
+                     <input 
+                        type="number"
+                        min="40"
+                        max="240"
+                        value={bpm}
+                        onChange={(e) => setBpm(Math.max(40, Math.min(240, parseInt(e.target.value) || 120)))}
+                        className="bg-black/50 text-white text-[10px] w-10 text-center rounded border border-gray-700 focus:border-cyan-500 outline-none"
+                     />
+                     
                      <select 
                         value={metronomeSound}
                         onChange={(e) => setMetronomeSound(e.target.value as MetronomeSound)}
-                        className="bg-transparent text-[8px] text-gray-500 hover:text-white border-none p-0 outline-none text-right cursor-pointer w-1/2"
+                        className="bg-transparent text-[10px] text-gray-400 hover:text-white border-none p-0 outline-none cursor-pointer"
                      >
                          {METRONOME_SOUNDS.map(s => (
                              <option key={s.id} value={s.id}>{s.label}</option>
                          ))}
                      </select>
                  </div>
+                 {/* Slider for quick adjustment */}
                  <input 
                    type="range" 
                    min="40" 
@@ -471,15 +606,15 @@ const App: React.FC = () => {
                    step="1" 
                    value={bpm} 
                    onChange={(e) => setBpm(parseInt(e.target.value))}
-                   className="w-full h-1.5 bg-black rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-cyan-600 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-cyan-400"
+                   className="w-32 h-1 bg-black rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-cyan-600 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-cyan-400"
                  />
             </div>
          </div>
 
          <div className="w-px h-6 bg-[#444] shrink-0 hidden md:block"></div>
 
-         {/* Recorder Controls */}
-         <div className="flex items-center gap-2 shrink-0 bg-black/30 p-1 rounded border border-gray-700 scale-90 md:scale-100 origin-left">
+         {/* Recorder Controls + Timer */}
+         <div className="flex items-center gap-3 shrink-0 bg-black/30 p-1 rounded border border-gray-700 scale-90 md:scale-100 origin-left">
              <button 
                 onClick={toggleRecording} 
                 className={`p-1.5 rounded-full transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-red-500 hover:bg-red-900/50'}`}
@@ -490,19 +625,26 @@ const App: React.FC = () => {
              <button 
                 onClick={togglePlayback}
                 disabled={isRecording || recordedEvents.length === 0}
-                className={`p-1.5 rounded-full transition-all ${isPlayingBack ? 'bg-green-500 text-white' : 'text-green-500 hover:bg-green-900/50 disabled:opacity-30 disabled:hover:bg-transparent'}`}
-                title="Play Recording (PrtSc)"
+                className={`p-1.5 rounded-full transition-all ${isPlayingBack ? 'bg-yellow-500 text-black' : 'text-green-500 hover:bg-green-900/50 disabled:opacity-30 disabled:hover:bg-transparent'}`}
+                title="Play/Pause (PrtSc)"
              >
-                 {isPlayingBack ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
+                 {isPlayingBack ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
              </button>
              <button
-                onClick={handleStop}
-                disabled={!isRecording && !isPlayingBack}
-                className={`p-1.5 rounded-full transition-all ${isRecording || isPlayingBack ? 'text-yellow-500 hover:bg-yellow-900/50' : 'text-gray-600'}`}
-                title="Stop All (Pause)"
+                onClick={handleStopFullReset}
+                disabled={!isRecording && !isPlayingBack && elapsedTime === 0}
+                className={`p-1.5 rounded-full transition-all ${isRecording || isPlayingBack || elapsedTime > 0 ? 'text-gray-300 hover:text-white hover:bg-gray-700' : 'text-gray-600'}`}
+                title="Stop & Reset (Pause)"
              >
-                 <Pause className="w-3 h-3 fill-current" />
+                 <RotateCcw className="w-3 h-3" />
              </button>
+
+             {/* Timer Display */}
+             <div className={`px-2 font-mono text-xs font-bold w-[60px] text-center transition-colors ${
+                 isRecording ? 'text-red-500' : isPlayingBack ? 'text-green-500' : elapsedTime > 0 ? 'text-yellow-500' : 'text-gray-500'
+             }`}>
+                 {formatTime(elapsedTime)}
+             </div>
          </div>
 
          <div className="flex-1"></div>
@@ -526,21 +668,17 @@ const App: React.FC = () => {
          </button>
       </div>
 
-      {/* 2. Unified Grid Keyboard Area - Responsive Layout (Scale Proportionally) */}
+      {/* 2. Unified Grid Keyboard Area */}
       <div className="flex-1 bg-gradient-to-b from-[#505050] to-[#2a2a2a] p-2 md:p-6 flex items-center justify-center overflow-hidden shadow-[inset_0_0_30px_rgba(0,0,0,0.8)] relative w-full">
           
           <div 
             className="grid gap-[2px] sm:gap-[3px] flex-shrink-0"
             style={{
-                // 23 units wide. 1u = 4 grid columns. Total = 92 columns.
                 gridTemplateColumns: `repeat(92, 1fr)`,
-                // Use 100% width so it fits the container exactly.
                 width: '100%', 
                 maxWidth: '1600px',
-                // Aspect Ratio ensures it scales structurally
-                // ~23 width / 6 height = ~3.83
                 aspectRatio: '23 / 6',
-                maxHeight: '100%', // ensure it doesn't overflow vertically if screen is weirdly wide but short
+                maxHeight: '100%', 
             }}
           >
               {ALL_ROWS.map((row, rowIdx) => (
@@ -563,27 +701,66 @@ const App: React.FC = () => {
           </div>
       </div>
 
-      {/* 3. Info Status Bar - Compact & Complete */}
+      {/* 3. Info Status Bar - Interactive Inputs */}
       <div className="h-6 md:h-8 bg-[#222] border-t border-[#111] border-b border-[#333] flex items-center justify-between px-2 md:px-4 text-[10px] md:text-xs font-mono text-gray-400 shrink-0 select-none overflow-hidden whitespace-nowrap">
-          <div className="flex gap-2 md:gap-4 items-center">
+          <div className="flex gap-4 items-center">
+              {/* Base / Transpose Select */}
               <div className="flex items-center gap-1 md:gap-2">
                   <span>Base:</span>
-                  <div className="bg-gray-200 text-black px-1 min-w-[20px] text-center rounded-[2px]">{getRootKeyName(transposeBase)}</div>
+                  <select 
+                      value={transposeBase}
+                      onChange={(e) => setTransposeBase(parseInt(e.target.value))}
+                      className="bg-gray-200 text-black px-1 min-w-[50px] text-center rounded-[2px] h-5 border-none outline-none cursor-pointer"
+                  >
+                      {Array.from({length: 25}, (_, i) => i - 12).map(val => (
+                          <option key={val} value={val}>
+                              {getRootKeyName(val)}
+                          </option>
+                      ))}
+                  </select>
               </div>
+
+              {/* Volume / Velocity Input */}
               <div className="flex items-center gap-1 md:gap-2">
                   <span>Vel:</span>
-                  <div className="bg-gray-200 text-black px-1 min-w-[20px] text-center rounded-[2px]">{Math.round(volume * 100)}</div>
+                  <input 
+                      type="number"
+                      min="0"
+                      max="200"
+                      value={Math.round(volume * 100)}
+                      onChange={(e) => setVolume(Math.min(2, Math.max(0, parseInt(e.target.value) / 100)))}
+                      className="bg-gray-200 text-black px-1 w-[40px] text-center rounded-[2px] h-5 border-none outline-none"
+                  />
               </div>
           </div>
           
-          <div className="flex gap-2 md:gap-4 items-center">
-              <div className="flex items-center gap-1 md:gap-2 cursor-pointer hover:text-white" onClick={cycleSustain}>
-                  <span>Sus:</span>
-                  <div className="bg-gray-200 text-black px-1 min-w-[25px] text-center rounded-[2px]">{getSustainValueDisplay()}</div>
-              </div>
+          <div className="flex gap-4 items-center">
+              {/* Sustain Select */}
               <div className="flex items-center gap-1 md:gap-2">
-                  <span>Oct</span>
-                  <div className="bg-gray-200 text-black px-1 min-w-[20px] text-center rounded-[2px]">{octaveShift}</div>
+                  <span>Sus:</span>
+                  <select
+                      value={sustainLevel}
+                      onChange={(e) => setSustainLevel(e.target.value as SustainLevel)}
+                      className="bg-gray-200 text-black px-1 min-w-[50px] text-center rounded-[2px] h-5 border-none outline-none cursor-pointer"
+                  >
+                      <option value="OFF">0 (Off)</option>
+                      <option value="SHORT">64 (Short)</option>
+                      <option value="LONG">127 (Long)</option>
+                  </select>
+              </div>
+
+              {/* Octave Select */}
+              <div className="flex items-center gap-1 md:gap-2">
+                  <span>Oct:</span>
+                  <select
+                      value={octaveShift}
+                      onChange={(e) => setOctaveShift(parseInt(e.target.value))}
+                      className="bg-gray-200 text-black px-1 w-[40px] text-center rounded-[2px] h-5 border-none outline-none cursor-pointer"
+                  >
+                      {Array.from({length: 7}, (_, i) => i - 3).map(val => (
+                           <option key={val} value={val}>{val > 0 ? `+${val}` : val}</option>
+                      ))}
+                  </select>
               </div>
           </div>
       </div>
@@ -591,7 +768,11 @@ const App: React.FC = () => {
       {/* 4. Piano Visualization - Collapsible */}
       {showPianoViz && (
           <div className="h-24 md:h-auto md:max-h-48 bg-[#1a1a1a] p-1 flex flex-col gap-1 shadow-[0_-5px_15px_rgba(0,0,0,0.5)] z-20 shrink-0 transition-all">
-              <PianoKeyboard activeNotes={visualActiveNotes} />
+              <PianoKeyboard 
+                  activeNotes={visualActiveNotes} 
+                  onPlayNote={playNoteByName}
+                  onStopNote={stopNoteByName}
+              />
           </div>
       )}
 
