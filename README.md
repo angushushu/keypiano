@@ -1,6 +1,6 @@
 # KeyPiano
 
-A simplified web version of freepiano. Try it [here](https://angushushu.com/piano).
+A simplified web version of freepiano made with aistudio. Try it [here](https://angushushu.com/piano).
 
 ## Run Locally
 
