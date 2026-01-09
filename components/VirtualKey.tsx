@@ -69,8 +69,6 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   const style: React.CSSProperties = {
     gridColumn: `span ${colSpan}`,
     gridRow: `span ${rowSpan}`,
-    // REMOVED aspectRatio to ensure tall keys and short keys 
-    // fill their grid cells identically, preventing gap inconsistencies.
   };
 
   const baseClasses = `
@@ -85,15 +83,29 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   const dummyLook = "opacity-0 pointer-events-none"; // Invisible
 
   const isFunctionKey = (customLabel || code.startsWith('F') || code === 'Escape') && !mappedNote; 
-  
+  const isCoffee = code === 'Coffee';
+
   // Special handling for #L and bL to make them look like Jianpu symbols
   const isLargeLabel = customLabel === '#L' || customLabel === 'bL';
+  
   const functionTextClass = isLargeLabel 
     ? "text-[12px] sm:text-[18px] font-bold font-mono" // Larger, like Jianpu
-    : "text-[7px] sm:text-[11px] tracking-tight"; // Smaller, for F-keys
+    : (isCoffee 
+        ? "text-[11px] sm:text-[13px] font-medium text-white-500 flex items-center justify-center gap-1.5" 
+        : "text-[7px] sm:text-[11px] tracking-tight"); // Smaller, for F-keys
 
-  let stateClass = isActive ? activeLook : normalLook;
-  if (isDummy) stateClass = dummyLook;
+  let stateClass;
+  
+  if (isDummy) {
+      stateClass = dummyLook;
+  } else if (isCoffee) {
+      // Coffee Button: Transparent, text only, fades in on hover
+      stateClass = `bg-transparent border-none shadow-none transition-all ${isActive ? 'opacity-100 scale-95' : 'opacity-40 hover:opacity-100'}`;
+  } else if (isActive) {
+      stateClass = activeLook;
+  } else {
+      stateClass = normalLook;
+  }
   
   const handleMouseDown = () => {
     if (!isDummy) onMouseDown(code);
@@ -142,17 +154,19 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
         onTouchEnd={(e) => { e.preventDefault(); handleMouseUp(); }}
     >
       {/* Top Left Label (QWERTY) */}
-      {!isFunctionKey && !isDummy && (
+      {!isFunctionKey && !isCoffee && !isDummy && (
           // Hide on mobile/tablet (hidden by default), show only on large screens (lg:block)
           <span className="absolute top-[2px] left-[3px] text-[10px] font-sans text-gray-400 font-bold leading-none hidden lg:block">
             {displayLabel}
           </span>
       )}
       
-      {/* Center Label (Function Keys & #L/bL) */}
-      {isFunctionKey && !isDummy && (
-          // Hide on mobile/tablet, show only on large screens
-          <span className={`${functionTextClass} text-gray-600 font-bold font-sans hidden lg:block`}>{displayLabel}</span>
+      {/* Center Label (Function Keys & #L/bL & Coffee) */}
+      {(isFunctionKey || isCoffee) && !isDummy && (
+          // Hide on mobile/tablet if regular function key, but show if it's Coffee
+          <span className={`${functionTextClass} ${!isCoffee && !isLargeLabel ? 'text-gray-600 font-bold font-sans' : ''} ${!isCoffee ? 'hidden lg:block' : ''}`}>
+              {displayLabel}
+          </span>
       )}
 
       {/* Jianpu Notation Label */}

@@ -475,6 +475,9 @@ const App: React.FC = () => {
       case 'Pause': 
          handleStopFullReset(); 
          break;
+      case 'Coffee':
+         window.open('https://paypal.me/angushushu', '_blank');
+         break;
     }
   };
 
@@ -485,7 +488,7 @@ const App: React.FC = () => {
 
     // Handle Special Function Keys
     if (code === 'Escape' || (code.startsWith('F') && code.length > 1 && !isNaN(parseInt(code.slice(1)))) || 
-        code === 'PrintScreen' || code === 'ScrollLock' || code === 'Pause') {
+        code === 'PrintScreen' || code === 'ScrollLock' || code === 'Pause' || code === 'Coffee') {
       handleFunctionKey(code);
     }
 

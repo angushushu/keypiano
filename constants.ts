@@ -45,7 +45,7 @@ export const FULL_ROW_0: KeyDef[] = [
   // UPDATED: Control keys mapped to Play/Rec/Stop
   { code: 'PrintScreen', label: 'Play' }, { code: 'ScrollLock', label: 'Rec' }, { code: 'Pause', label: 'Stop' },
   { code: 'dummy_0_5', label: '', width: 0.5, isDummy: true }, // Gap 0.5u (Nav to Num)
-  { code: 'dummy_0_6', label: '', width: 4, isDummy: true }, // Empty Numpad top area
+  { code: 'Coffee', label: 'Support', customLabel: '☕ Buy me a Coffee', width: 4 }, // Replaces dummy gap
 ];
 
 export const FULL_ROW_1: KeyDef[] = [
