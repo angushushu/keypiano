@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 
 interface PianoKeyboardProps {
     activeNotes: string[]; // List of currently playing notes (e.g. "C4", "F#5")
@@ -32,8 +32,9 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, onPlayNote, 
     }
 
     const whiteKeys = allKeys.filter(k => !k.isBlack);
+    const lastTouchNoteId = useRef<string | null>(null);
     
-    // Helper to handle both click and swipe (glissando)
+    // Helper to handle both click and swipe (glissando) for MOUSE
     const handleNoteAction = (noteId: string, action: 'down' | 'up' | 'enter' | 'leave', e: React.MouseEvent) => {
         e.preventDefault(); // Prevent default drag selection behavior
         
@@ -50,13 +51,60 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, onPlayNote, 
         }
     };
 
+    // TOUCH HANDLERS
+    const handleTouchStart = (e: React.TouchEvent, noteId: string) => {
+        // We do not strictly call e.preventDefault() here to allow multi-touch to work smoothly
+        // without blocking the main thread significantly, but we rely on CSS touch-action: none.
+        
+        onPlayNote(noteId);
+        lastTouchNoteId.current = noteId;
+    };
+
+    const handleTouchMove = (e: React.TouchEvent) => {
+        // Identify element under finger
+        const touch = e.touches[0];
+        const target = document.elementFromPoint(touch.clientX, touch.clientY);
+        
+        // We look for the data-note-id attribute
+        const keyEl = target?.closest('[data-note-id]');
+        
+        if (keyEl) {
+            const noteId = keyEl.getAttribute('data-note-id');
+            if (noteId && noteId !== lastTouchNoteId.current) {
+                // Stopped previous note
+                if (lastTouchNoteId.current) {
+                    onStopNote(lastTouchNoteId.current);
+                }
+                // Start new note
+                onPlayNote(noteId);
+                lastTouchNoteId.current = noteId;
+            }
+        } else {
+            // Finger moved off keyboard
+            if (lastTouchNoteId.current) {
+                onStopNote(lastTouchNoteId.current);
+                lastTouchNoteId.current = null;
+            }
+        }
+    };
+
+    const handleTouchEnd = () => {
+        if (lastTouchNoteId.current) {
+            onStopNote(lastTouchNoteId.current);
+            lastTouchNoteId.current = null;
+        }
+    };
+
     return (
         <div 
-            className="relative h-48 md:h-60 flex select-none overflow-hidden bg-black p-1 rounded border-t-4 border-gray-700 shadow-inner w-full cursor-pointer"
+            className="relative h-48 md:h-60 flex select-none overflow-hidden bg-black p-1 rounded border-t-4 border-gray-700 shadow-inner w-full cursor-pointer touch-none"
+            style={{ touchAction: 'none' }} // Critical for preventing scroll on mobile
             onMouseLeave={() => {
-                // Failsafe: if mouse leaves entire piano area, we might want to ensure notes stop?
-                // But individual keys handle 'leave', so it should be fine.
+                // Failsafe for mouse
             }}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchEnd}
         >
             {whiteKeys.map((k) => {
                  const isActive = activeNotes.includes(k.noteId);
@@ -64,11 +112,13 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, onPlayNote, 
                  return (
                      <div 
                          key={k.noteId}
+                         data-note-id={k.noteId} // ID for elementFromPoint lookup
                          className={`flex-1 border-l border-b border-r border-gray-400 rounded-b-[4px] relative ${isActive ? 'bg-yellow-400 !bg-none shadow-[0_0_10px_orange]' : 'bg-gradient-to-b from-white to-gray-200'}`}
                          onMouseDown={(e) => handleNoteAction(k.noteId, 'down', e)}
                          onMouseUp={(e) => handleNoteAction(k.noteId, 'up', e)}
                          onMouseEnter={(e) => handleNoteAction(k.noteId, 'enter', e)}
                          onMouseLeave={(e) => handleNoteAction(k.noteId, 'leave', e)}
+                         onTouchStart={(e) => handleTouchStart(e, k.noteId)}
                      >
                         {k.note === 'C' && (
                             <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-gray-500 font-bold hidden sm:block">C{k.octave}</span>
@@ -78,13 +128,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, onPlayNote, 
             })}
             
             {/* Render Black Keys Overlay */}
-            {/* 
-                We position black keys based on the white keys. 
-                Using pointer-events-none on container, but pointer-events-auto on keys to allow interaction.
-            */}
             <div className="absolute inset-0 pointer-events-none pl-1 pr-1"> 
-                 {/* The padding matches the container padding to align with white keys row */}
-                 
                  {allKeys.map((k) => {
                      if (!k.isBlack) return null;
                      
@@ -102,6 +146,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, onPlayNote, 
                      return (
                          <div 
                              key={k.noteId}
+                             data-note-id={k.noteId} // ID for elementFromPoint lookup
                              className={`absolute h-[64%] border-b-4 border-gray-800 rounded-b-[3px] z-10 pointer-events-auto ${isActive ? 'bg-yellow-600 border-yellow-800 shadow-[0_0_10px_orange]' : 'bg-gradient-to-b from-gray-800 to-black'}`}
                              style={{
                                  left: `${leftPct}%`,
@@ -111,6 +156,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, onPlayNote, 
                              onMouseUp={(e) => { e.stopPropagation(); handleNoteAction(k.noteId, 'up', e); }}
                              onMouseEnter={(e) => handleNoteAction(k.noteId, 'enter', e)}
                              onMouseLeave={(e) => handleNoteAction(k.noteId, 'leave', e)}
+                             onTouchStart={(e) => { e.stopPropagation(); handleTouchStart(e, k.noteId); }}
                          ></div>
                      );
                  })}

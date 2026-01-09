@@ -69,16 +69,14 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   const style: React.CSSProperties = {
     gridColumn: `span ${colSpan}`,
     gridRow: `span ${rowSpan}`,
-    // CRITICAL FIX: 
-    // Only apply aspect ratio to single-height keys. 
-    // Tall keys (height > 1) MUST NOT have aspect ratio to allow them to stretch naturally with the grid rows.
-    ...(height === 1 ? { aspectRatio: `${width / height}` } : {}),
+    // REMOVED aspectRatio to ensure tall keys and short keys 
+    // fill their grid cells identically, preventing gap inconsistencies.
   };
 
   const baseClasses = `
     relative rounded-[4px] flex flex-col items-center justify-center 
     select-none transition-all duration-75 box-border cursor-pointer
-    ${height > 1 ? 'h-full self-stretch' : ''} 
+    w-full h-full 
   `;
 
   // Visual Styling - Mimic standard physical keys slightly better
@@ -87,8 +85,12 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   const dummyLook = "opacity-0 pointer-events-none"; // Invisible
 
   const isFunctionKey = (customLabel || code.startsWith('F') || code === 'Escape') && !mappedNote; 
-  // Scalable font size for function keys (text-[8px] sm:text-[11px])
-  const functionTextClass = "text-[7px] sm:text-[11px] tracking-tight";
+  
+  // Special handling for #L and bL to make them look like Jianpu symbols
+  const isLargeLabel = customLabel === '#L' || customLabel === 'bL';
+  const functionTextClass = isLargeLabel 
+    ? "text-[12px] sm:text-[18px] font-bold font-mono" // Larger, like Jianpu
+    : "text-[7px] sm:text-[11px] tracking-tight"; // Smaller, for F-keys
 
   let stateClass = isActive ? activeLook : normalLook;
   if (isDummy) stateClass = dummyLook;
@@ -134,8 +136,8 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
         style={style}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave} // Updated for swipe
-        onMouseEnter={handleMouseEnter} // Updated for swipe
+        onMouseLeave={handleMouseLeave} 
+        onMouseEnter={handleMouseEnter}
         onTouchStart={(e) => { e.preventDefault(); handleMouseDown(); }}
         onTouchEnd={(e) => { e.preventDefault(); handleMouseUp(); }}
     >
@@ -147,7 +149,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
           </span>
       )}
       
-      {/* Center Label (Function Keys) */}
+      {/* Center Label (Function Keys & #L/bL) */}
       {isFunctionKey && !isDummy && (
           // Hide on mobile/tablet, show only on large screens
           <span className={`${functionTextClass} text-gray-600 font-bold font-sans hidden lg:block`}>{displayLabel}</span>

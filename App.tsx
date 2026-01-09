@@ -3,16 +3,25 @@ import VirtualKey from './components/VirtualKey';
 import PianoKeyboard from './components/PianoKeyboard';
 import LandscapePrompt from './components/LandscapePrompt';
 import { audioEngine, SustainLevel, INSTRUMENTS, InstrumentID, MetronomeSound, METRONOME_SOUNDS } from './services/audioEngine';
+import { generateMidiFile, parseMidiFile } from './services/midiIO';
 import { 
   KEY_TO_NOTE, 
   ALL_ROWS
 } from './constants';
 import { 
   Volume2, Keyboard, Activity, Loader2, Music, 
-  Circle, Square, Play, Pause, Timer, Info, X, ExternalLink, ChevronDown, ChevronUp, Github, RotateCcw
+  Circle, Square, Play, Pause, Timer, Info, X, ExternalLink, ChevronDown, ChevronUp, Github, RotateCcw,
+  Download, Upload, FileUp
 } from 'lucide-react';
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+// Reverse mapping for visual feedback on the computer keyboard when playing MIDI
+const NOTE_TO_KEY: Record<string, string> = Object.entries(KEY_TO_NOTE).reduce((acc, [code, note]) => {
+    // Only map if not already mapped (prefer first occurrence)
+    if (!acc[note]) acc[note] = code;
+    return acc;
+}, {} as Record<string, string>);
 
 const getTransposedNote = (note: string, semitones: number): string => {
   const match = note.match(/([A-G][#b]?)(-?\d+)/);
@@ -50,12 +59,22 @@ interface RecordedEvent {
   time: number;
   type: 'on' | 'off';
   note: string;
+  code?: string; // Store the physical key code for visual playback
   transpose: number;
   instrumentId: InstrumentID;
+  velocity?: number;
 }
 
 const App: React.FC = () => {
   const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set());
+  
+  // Separate state for keys active during playback (Computer Keyboard)
+  const [playbackKeys, setPlaybackKeys] = useState<Set<string>>(new Set());
+  
+  // Separate state for notes active during playback (Piano Visualizer)
+  // This ensures imported MIDI (which has no key codes) still lights up the piano.
+  const [playbackNotes, setPlaybackNotes] = useState<Set<string>>(new Set());
+
   // Track notes clicked via the Piano Visualizer directly
   const [activeMouseNotes, setActiveMouseNotes] = useState<Set<string>>(new Set());
 
@@ -103,6 +122,7 @@ const App: React.FC = () => {
   const playbackTimeouts = useRef<number[]>([]);
   // Track currently playing notes during playback to stop them on Pause/Stop
   const activePlaybackNotes = useRef<Set<string>>(new Set()); 
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Orientation & Screen Size Check
   useEffect(() => {
@@ -137,21 +157,27 @@ const App: React.FC = () => {
     const notes: string[] = [];
     const totalSemis = transposeBase + (octaveShift * 12) + tempTranspose;
     
-    // Notes from keyboard
+    // 1. Process Manual Computer Keys
     activeKeys.forEach(code => {
-      const baseNote = KEY_TO_NOTE[code];
-      if (baseNote) {
-        notes.push(getTransposedNote(baseNote, totalSemis));
-      }
+        const baseNote = KEY_TO_NOTE[code];
+        if (baseNote) {
+            notes.push(getTransposedNote(baseNote, totalSemis));
+        }
+    });
+    
+    // 2. Process Playback NOTES (Direct from MIDI or Recording)
+    // We use playbackNotes Set because it handles both mapped and unmapped MIDI events.
+    playbackNotes.forEach(note => {
+        notes.push(note);
     });
 
-    // Notes from direct mouse interaction on Piano
+    // 3. Process Mouse Interaction on Piano
     activeMouseNotes.forEach(n => {
         notes.push(n);
     });
 
     return notes;
-  }, [activeKeys, activeMouseNotes, transposeBase, octaveShift, tempTranspose]);
+  }, [activeKeys, playbackNotes, activeMouseNotes, transposeBase, octaveShift, tempTranspose]);
 
   useEffect(() => {
     synthStateRef.current = { transposeBase, octaveShift };
@@ -283,13 +309,53 @@ const App: React.FC = () => {
     eventsToPlay.forEach(evt => {
         const delay = evt.time - startOffset;
         const tid = window.setTimeout(() => {
+            // Determine the final note to play/visualize
+            // If transpose is in event, apply it.
+            const noteToPlay = getTransposedNote(evt.note, evt.transpose);
+
             if (evt.type === 'on') {
-                audioEngine.playNote(evt.note, evt.transpose);
-                // Track this note to stop it if paused
+                audioEngine.playNote(evt.note, evt.transpose, evt.velocity);
+                
+                // Track for cleanup on pause
                 activePlaybackNotes.current.add(`${evt.note}_${evt.transpose}`);
+                
+                // Visual 1: Piano Keyboard (Always works)
+                setPlaybackNotes(prev => {
+                   const next = new Set(prev);
+                   next.add(noteToPlay);
+                   return next;
+                });
+
+                // Visual 2: Computer Keyboard (Best Effort)
+                // Use recorded code OR reverse lookup
+                const code = evt.code || NOTE_TO_KEY[evt.note];
+                if (code) {
+                    setPlaybackKeys(prev => {
+                        const next = new Set(prev);
+                        next.add(code);
+                        return next;
+                    });
+                }
             } else {
                 audioEngine.stopNote(evt.note, evt.transpose);
                 activePlaybackNotes.current.delete(`${evt.note}_${evt.transpose}`);
+                
+                // Visual 1 off
+                setPlaybackNotes(prev => {
+                   const next = new Set(prev);
+                   next.delete(noteToPlay);
+                   return next;
+                });
+                
+                // Visual 2 off
+                const code = evt.code || NOTE_TO_KEY[evt.note];
+                if (code) {
+                     setPlaybackKeys(prev => {
+                        const next = new Set(prev);
+                        next.delete(code);
+                        return next;
+                    });
+                }
             }
         }, delay);
         playbackTimeouts.current.push(tid);
@@ -319,6 +385,10 @@ const App: React.FC = () => {
           audioEngine.stopNote(note, parseInt(transpose));
       });
       activePlaybackNotes.current.clear();
+      
+      // Clear visual playback keys
+      setPlaybackKeys(new Set());
+      setPlaybackNotes(new Set());
   };
 
   const handleStopFullReset = () => {
@@ -334,6 +404,52 @@ const App: React.FC = () => {
       // 3. Reset Time to 0
       setElapsedTime(0);
   };
+  
+  // --- MIDI I/O ---
+  const handleExportMidi = () => {
+      if (recordedEvents.length === 0) return;
+      
+      const blob = generateMidiFile(recordedEvents);
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `KeyPiano_Recording_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.mid`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+  };
+
+  const handleImportMidiClick = () => {
+      fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      try {
+          const arrayBuffer = await file.arrayBuffer();
+          const events = parseMidiFile(arrayBuffer);
+          
+          handleStopFullReset();
+          setRecordedEvents(events);
+          recordingRef.current = events; // Sync ref
+          
+          // Optional: Auto reset time to 0 to be ready to play
+          setElapsedTime(0);
+          
+          alert(`Successfully imported MIDI: ${events.length} events loaded.`);
+      } catch (err) {
+          console.error(err);
+          alert("Failed to parse MIDI file. Please ensure it is a valid Standard MIDI File (.mid).");
+      }
+      
+      // Reset input so same file can be selected again
+      if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   // ----------------------
 
   const handleFunctionKey = (code: string) => {
@@ -377,7 +493,10 @@ const App: React.FC = () => {
     if (note) {
       const totalTranspose = synthStateRef.current.transposeBase + (synthStateRef.current.octaveShift * 12) + tempTransposeRef.current;
       
-      audioEngine.playNote(note, totalTranspose);
+      // Apply velocity (approximate for manual play)
+      // Volume 1.0 -> Vel 100.
+      const vel = Math.min(127, Math.floor(volume * 100)); 
+      audioEngine.playNote(note, totalTranspose, vel);
 
       // Record
       if (isRecording) {
@@ -385,8 +504,10 @@ const App: React.FC = () => {
               time: Date.now() - recordingStartTime,
               type: 'on',
               note: note,
+              code: code, // Save the physical key code
               transpose: totalTranspose,
-              instrumentId: currentInstrument
+              instrumentId: currentInstrument,
+              velocity: vel
           };
           recordingRef.current.push(evt);
       }
@@ -398,7 +519,7 @@ const App: React.FC = () => {
       activeKeysRef.current = newSet;
       return newSet;
     });
-  }, [isAudioStarted, sustainLevel, isRecording, recordingStartTime, currentInstrument, elapsedTime, isPlayingBack]);
+  }, [isAudioStarted, sustainLevel, isRecording, recordingStartTime, currentInstrument, elapsedTime, isPlayingBack, volume]);
 
   const stopNoteByCode = useCallback((code: string) => {
     const note = KEY_TO_NOTE[code];
@@ -418,6 +539,7 @@ const App: React.FC = () => {
               time: Date.now() - recordingStartTime,
               type: 'off',
               note: note,
+              code: code, // Save the physical key code
               transpose: totalTranspose,
               instrumentId: currentInstrument
           };
@@ -434,17 +556,16 @@ const App: React.FC = () => {
 
   // Direct Note Playing (for Piano Visualizer interaction)
   const playNoteByName = useCallback((noteName: string) => {
-      // Direct playing has no transpose in this context, or we could assume C4 means C4.
-      // We do not record these events currently, or should we?
-      // For simplicity, let's treat it as pure performance.
-      audioEngine.playNote(noteName, 0); 
+      // Direct playing has no transpose in this context
+      const vel = Math.min(127, Math.floor(volume * 100));
+      audioEngine.playNote(noteName, 0, vel); 
       
       setActiveMouseNotes(prev => {
           const newSet = new Set(prev);
           newSet.add(noteName);
           return newSet;
       });
-  }, []);
+  }, [volume]);
 
   const stopNoteByName = useCallback((noteName: string) => {
       audioEngine.stopNote(noteName, 0);
@@ -522,6 +643,15 @@ const App: React.FC = () => {
   return (
     <div className="h-screen w-screen bg-[#333333] flex flex-col overflow-hidden font-sans select-none relative">
       
+      {/* Hidden File Input for MIDI Import */}
+      <input 
+          type="file" 
+          ref={fileInputRef} 
+          accept=".mid,.midi" 
+          onChange={handleFileChange}
+          className="hidden" 
+      />
+
       {/* 0. Landscape Warning Overlay */}
       {isPortraitMobile && <LandscapePrompt />}
 
@@ -613,7 +743,7 @@ const App: React.FC = () => {
 
          <div className="w-px h-6 bg-[#444] shrink-0 hidden md:block"></div>
 
-         {/* Recorder Controls + Timer */}
+         {/* Recorder Controls + Timer + Import/Export */}
          <div className="flex items-center gap-3 shrink-0 bg-black/30 p-1 rounded border border-gray-700 scale-90 md:scale-100 origin-left">
              <button 
                 onClick={toggleRecording} 
@@ -637,6 +767,28 @@ const App: React.FC = () => {
                 title="Stop & Reset (Pause)"
              >
                  <RotateCcw className="w-3 h-3" />
+             </button>
+
+             {/* Separator */}
+             <div className="w-px h-4 bg-gray-600 mx-1"></div>
+
+             {/* Import MIDI */}
+             <button
+                 onClick={handleImportMidiClick}
+                 className="p-1.5 text-blue-400 hover:text-white hover:bg-blue-900/30 rounded-full transition-colors"
+                 title="Import MIDI File"
+             >
+                 <FileUp className="w-3 h-3" />
+             </button>
+
+             {/* Export MIDI */}
+             <button
+                 onClick={handleExportMidi}
+                 disabled={recordedEvents.length === 0}
+                 className="p-1.5 text-orange-400 hover:text-white hover:bg-orange-900/30 rounded-full transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                 title="Export Recording to MIDI"
+             >
+                 <Download className="w-3 h-3" />
              </button>
 
              {/* Timer Display */}
@@ -672,9 +824,10 @@ const App: React.FC = () => {
       <div className="flex-1 bg-gradient-to-b from-[#505050] to-[#2a2a2a] p-2 md:p-6 flex items-center justify-center overflow-hidden shadow-[inset_0_0_30px_rgba(0,0,0,0.8)] relative w-full">
           
           <div 
-            className="grid gap-[2px] sm:gap-[3px] flex-shrink-0"
+            className="grid gap-[3px] sm:gap-[4px] lg:gap-[5px] flex-shrink-0"
             style={{
                 gridTemplateColumns: `repeat(92, 1fr)`,
+                gridTemplateRows: `repeat(6, 1fr)`,
                 width: '100%', 
                 maxWidth: '1600px',
                 aspectRatio: '23 / 6',
@@ -689,6 +842,7 @@ const App: React.FC = () => {
                             {...k}
                             isActive={
                                 activeKeys.has(k.code) || 
+                                playbackKeys.has(k.code) ||
                                 (k.code === 'ShiftLeft' && tempTranspose === 1) ||
                                 (k.code === 'ControlLeft' && tempTranspose === -1)
                             }
@@ -796,6 +950,8 @@ const App: React.FC = () => {
                     <div className="bg-[#1a1a1a] p-3 rounded border border-[#333] mb-4 space-y-1 font-mono text-xs">
                          <div className="flex justify-between"><span className="text-gray-500">Esc</span> <span>Sustain</span></div>
                         <div className="flex justify-between"><span className="text-gray-500">F3-F6</span> <span>Transpose/Octave</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">PrtSc</span> <span>Play/Pause</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">ScrLk</span> <span>Record</span></div>
                     </div>
                      <p className="text-xs text-gray-500 mb-6">
                         For mobile users: The keyboard scales to fit your screen in landscape mode.

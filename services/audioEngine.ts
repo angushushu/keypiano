@@ -344,7 +344,13 @@ class AudioEngine {
         return null;
     }
 
-    public playNote(note: string, transpose: number = 0) {
+    /**
+     * Play a note.
+     * @param note Note name (e.g. C4)
+     * @param transpose Semitone shift
+     * @param velocity (Optional) MIDI velocity 0-127. Defaults to 100 (~0.8 gain).
+     */
+    public playNote(note: string, transpose: number = 0, velocity: number = 100) {
         if (!this.ctx || !this.isLoaded || !this.masterGain) return;
         
         // Mobile Fix: Always try to resume context on user interaction
@@ -366,7 +372,13 @@ class AudioEngine {
         source.playbackRate.value = Math.pow(2, match.distance / 12);
 
         const gain = this.ctx.createGain();
-        gain.gain.value = 1.0;
+        
+        // Velocity Curve: Map 0-127 to 0.0-1.0. 
+        // Using a squared curve gives a more natural dynamic feel.
+        const normalizedVel = Math.max(0, Math.min(127, velocity)) / 127;
+        const gainValue = normalizedVel * normalizedVel; 
+        
+        gain.gain.value = gainValue;
 
         source.connect(gain);
         gain.connect(this.masterGain);

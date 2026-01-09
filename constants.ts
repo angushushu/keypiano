@@ -34,7 +34,7 @@ export const KEY_TO_NOTE: KeyMap = {
 // To handle the Numpad Enter/Plus height, we use grid-row-span in the component.
 
 export const FULL_ROW_0: KeyDef[] = [
-  { code: 'Escape', label: 'Esc', customLabel: 'SUSTAIN' }, 
+  { code: 'Escape', label: 'Esc', customLabel: 'SU' }, 
   { code: 'dummy_0_1', label: '', width: 1, isDummy: true }, // Gap 1u
   { code: 'F1', label: 'F1' }, { code: 'F2', label: 'F2' }, { code: 'F3', label: 'F3', customLabel: 'KS-' }, { code: 'F4', label: 'F4', customLabel: 'KS+' },
   { code: 'dummy_0_2', label: '', width: 0.5, isDummy: true }, // Gap 0.5u
@@ -74,7 +74,7 @@ export const FULL_ROW_3: KeyDef[] = [
 ];
 
 export const FULL_ROW_4: KeyDef[] = [
-  { code: 'ShiftLeft', label: 'Shift', width: 2.25, isModifier: true }, { code: 'KeyZ', label: 'Z' }, { code: 'KeyX', label: 'X' }, { code: 'KeyC', label: 'C' }, { code: 'KeyV', label: 'V' }, { code: 'KeyB', label: 'B' }, { code: 'KeyN', label: 'N' }, { code: 'KeyM', label: 'M' }, { code: 'Comma', label: ',' }, { code: 'Period', label: '.' }, { code: 'Slash', label: '/' }, { code: 'ShiftRight', label: 'Shift', width: 2.75 },
+  { code: 'ShiftLeft', label: '', customLabel: '#L', width: 2.25, isModifier: true }, { code: 'KeyZ', label: 'Z' }, { code: 'KeyX', label: 'X' }, { code: 'KeyC', label: 'C' }, { code: 'KeyV', label: 'V' }, { code: 'KeyB', label: 'B' }, { code: 'KeyN', label: 'N' }, { code: 'KeyM', label: 'M' }, { code: 'Comma', label: ',' }, { code: 'Period', label: '.' }, { code: 'Slash', label: '/' }, { code: 'ShiftRight', label: 'Shift', width: 2.75 },
   { code: 'dummy_4_1', label: '', width: 0.5, isDummy: true },
   { code: 'dummy_4_2', label: '', width: 1, isDummy: true }, { code: 'ArrowUp', label: '↑' }, { code: 'dummy_4_3', label: '', width: 1, isDummy: true },
   { code: 'dummy_4_4', label: '', width: 0.5, isDummy: true },
@@ -82,7 +82,7 @@ export const FULL_ROW_4: KeyDef[] = [
 ];
 
 export const FULL_ROW_5: KeyDef[] = [
-  { code: 'ControlLeft', label: 'Ctrl', width: 1.25, isModifier: true }, { code: 'MetaLeft', label: 'Win', width: 1.25, isDummy: true }, { code: 'AltLeft', label: 'Alt', width: 1.25, isDummy: true }, { code: 'Space', label: 'KeyPiano', width: 6.25 }, { code: 'AltRight', label: 'Alt', width: 1.25, isDummy: true }, { code: 'MetaRight', label: 'Win', width: 1.25, isDummy: true }, { code: 'ContextMenu', label: 'Menu', width: 1.25, isDummy: true }, { code: 'ControlRight', label: 'Ctrl', width: 1.25, isDummy: true },
+  { code: 'ControlLeft', label: '', customLabel: 'bL', width: 1.25, isModifier: true }, { code: 'MetaLeft', label: 'Win', width: 1.25, isDummy: true }, { code: 'AltLeft', label: 'Alt', width: 1.25, isDummy: true }, { code: 'Space', label: 'KeyPiano', width: 6.25 }, { code: 'AltRight', label: 'Alt', width: 1.25, isDummy: true }, { code: 'MetaRight', label: 'Win', width: 1.25, isDummy: true }, { code: 'ContextMenu', label: 'Menu', width: 1.25, isDummy: true }, { code: 'ControlRight', label: 'Ctrl', width: 1.25, isDummy: true },
   { code: 'dummy_5_1', label: '', width: 0.5, isDummy: true },
   { code: 'ArrowLeft', label: '←' }, { code: 'ArrowDown', label: '↓' }, { code: 'ArrowRight', label: '→' },
   { code: 'dummy_5_2', label: '', width: 0.5, isDummy: true },
