@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import VirtualKey from './components/VirtualKey';
 import PianoKeyboard from './components/PianoKeyboard';
+import LandscapePrompt from './components/LandscapePrompt';
 import { audioEngine, SustainLevel, INSTRUMENTS, InstrumentID, MetronomeSound, METRONOME_SOUNDS } from './services/audioEngine';
 import { 
   KEY_TO_NOTE, 
@@ -8,7 +9,7 @@ import {
 } from './constants';
 import { 
   Volume2, Keyboard, Zap, Activity, ArrowUp, ArrowDown, Loader2, Music, 
-  Circle, Square, Play, Pause, Timer, Info, X, ExternalLink
+  Circle, Square, Play, Pause, Timer, Info, X, ExternalLink, ChevronDown, ChevronUp, Github
 } from 'lucide-react';
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -50,12 +51,22 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   
+  // Mobile/Landscape state
+  const [isPortraitMobile, setIsPortraitMobile] = useState(false);
+  const [isCompactHeight, setIsCompactHeight] = useState(false);
+  
+  // Layout State
+  const [showPianoViz, setShowPianoViz] = useState(true);
+
   // Synth State
   const [transposeBase, setTransposeBase] = useState(0); 
   const [octaveShift, setOctaveShift] = useState(0); 
   const [volume, setVolume] = useState(0.8);
   const [sustainLevel, setSustainLevel] = useState<SustainLevel>('SHORT');
-  const [currentInstrument, setCurrentInstrument] = useState<InstrumentID>('hq_piano');
+  
+  // Start Screen Selection
+  const [selectedStartInstrument, setSelectedStartInstrument] = useState<InstrumentID>('salamander');
+  const [currentInstrument, setCurrentInstrument] = useState<InstrumentID>('salamander');
   
   // Modifiers state
   const [tempTranspose, setTempTranspose] = useState(0); 
@@ -77,6 +88,35 @@ const App: React.FC = () => {
   const tempTransposeRef = useRef(0);
   const recordingRef = useRef<RecordedEvent[]>([]);
   const playbackTimeouts = useRef<number[]>([]);
+
+  // Orientation & Screen Size Check
+  useEffect(() => {
+    const checkLayout = () => {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      
+      const isPortrait = height > width;
+      const isSmallScreen = width < 1024;
+      
+      setIsPortraitMobile(isPortrait && isSmallScreen);
+      
+      // Determine if height is compact (like landscape phone)
+      // Usually < 600px height is tight
+      const isCompact = height < 600;
+      setIsCompactHeight(isCompact);
+      
+      // Auto-hide piano visualization on compact screens if it hasn't been manually toggled yet
+      if (isCompact) {
+          setShowPianoViz(false);
+      } else {
+          setShowPianoViz(true);
+      }
+    };
+
+    checkLayout();
+    window.addEventListener('resize', checkLayout);
+    return () => window.removeEventListener('resize', checkLayout);
+  }, []);
 
   const visualActiveNotes = useMemo(() => {
     const notes: string[] = [];
@@ -103,6 +143,9 @@ const App: React.FC = () => {
   // Metronome Effect
   useEffect(() => {
     if (isAudioStarted) {
+      // Ensure BPM is updated even if metronome is already running
+      audioEngine.setBPM(bpm);
+      
       if (isMetronomeOn) {
         audioEngine.startMetronome(bpm);
       } else {
@@ -236,8 +279,10 @@ const App: React.FC = () => {
   };
 
   const playNoteByCode = useCallback((code: string) => {
-    if (!isAudioStarted) return;
-    
+    // DO NOT return if !isAudioStarted here, because on mobile, 
+    // the first touch might be trying to wake up the engine if it was suspended.
+    // AudioEngine handles the safety checks.
+
     // Handle Special Function Keys
     if (code === 'Escape' || (code.startsWith('F') && code.length > 1 && !isNaN(parseInt(code.slice(1)))) || 
         code === 'PrintScreen' || code === 'ScrollLock' || code === 'Pause') {
@@ -272,7 +317,6 @@ const App: React.FC = () => {
   }, [isAudioStarted, sustainLevel, isRecording, recordingStartTime, currentInstrument]);
 
   const stopNoteByCode = useCallback((code: string) => {
-    if (!isAudioStarted) return;
     const note = KEY_TO_NOTE[code];
     if (note) {
       const base = synthStateRef.current.transposeBase + (synthStateRef.current.octaveShift * 12);
@@ -344,29 +388,34 @@ const App: React.FC = () => {
 
   const startAudio = async () => {
     setIsLoading(true);
-    await audioEngine.init();
+    // Initialize with selected instrument
+    setCurrentInstrument(selectedStartInstrument);
+    await audioEngine.init(selectedStartInstrument); 
     setIsLoading(false);
     setIsAudioStarted(true);
   };
 
   return (
-    <div className="h-screen w-screen bg-[#333333] flex flex-col overflow-hidden font-sans select-none">
+    <div className="h-screen w-screen bg-[#333333] flex flex-col overflow-hidden font-sans select-none relative">
       
+      {/* 0. Landscape Warning Overlay */}
+      {isPortraitMobile && <LandscapePrompt />}
+
       {/* 1. Functional Toolbar */}
-      <div className="bg-[#2a2a2a] p-2 flex items-center gap-4 border-b border-[#111] shadow-md z-20 h-14 min-h-[3.5rem] shrink-0 overflow-x-auto overflow-y-hidden no-scrollbar">
-         <div className="flex items-center gap-2 text-yellow-500 font-bold px-4 border-r border-[#444] shrink-0">
+      <div className="bg-[#2a2a2a] p-1.5 md:p-2 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[#111] shadow-md z-20 shrink-0 overflow-x-auto overflow-y-hidden no-scrollbar">
+         <div className="flex items-center gap-2 text-yellow-500 font-bold px-2 md:px-4 md:border-r border-[#444] shrink-0">
              <Keyboard className="w-5 h-5" />
              <span className="hidden lg:inline">KeyPiano</span>
          </div>
          
-         {/* Instrument Selector */}
+         {/* Instrument Selector (Compact) */}
          <div className="flex items-center gap-2 shrink-0">
             <Music className="w-4 h-4 text-blue-400" />
             <select 
                 value={currentInstrument}
                 onChange={(e) => handleInstrumentChange(e.target.value as InstrumentID)}
                 disabled={!isAudioStarted || isLoading}
-                className="bg-black text-white text-sm px-2 py-1 rounded border border-gray-600 focus:outline-none focus:border-yellow-500 cursor-pointer disabled:opacity-50 w-32 md:w-auto"
+                className="bg-black text-white text-xs px-2 py-1 rounded border border-gray-600 focus:outline-none focus:border-yellow-500 cursor-pointer disabled:opacity-50 max-w-[120px] md:max-w-none"
             >
                 {INSTRUMENTS.map(inst => (
                     <option key={inst.id} value={inst.id}>{inst.name}</option>
@@ -374,9 +423,9 @@ const App: React.FC = () => {
             </select>
          </div>
 
-         <div className="w-px h-6 bg-[#444] shrink-0"></div>
+         <div className="w-px h-6 bg-[#444] shrink-0 hidden md:block"></div>
          
-         {/* Interactive Volume Control (Increased Max) */}
+         {/* Interactive Volume Control */}
          <div className="flex items-center gap-2 group relative shrink-0">
             <Volume2 className={`w-4 h-4 ${volume > 0 ? 'text-green-500' : 'text-gray-600'}`} />
             <input 
@@ -386,15 +435,51 @@ const App: React.FC = () => {
               step="0.05" 
               value={volume} 
               onChange={(e) => setVolume(parseFloat(e.target.value))}
-              className="w-20 md:w-28 h-2 bg-black rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-green-400"
+              className="w-16 md:w-28 h-2 bg-black rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-green-400"
             />
-            <span className="text-xs text-gray-500 w-8">{Math.round(volume * 100)}%</span>
          </div>
 
-         <div className="w-px h-6 bg-[#444] shrink-0"></div>
+         <div className="w-px h-6 bg-[#444] shrink-0 hidden md:block"></div>
+         
+         {/* Metronome Controls */}
+         <div className="flex items-center gap-2 shrink-0">
+            <button 
+                onClick={() => setIsMetronomeOn(!isMetronomeOn)}
+                className={`transition-colors ${isMetronomeOn ? 'text-cyan-400' : 'text-gray-600 hover:text-gray-400'}`}
+                title="Toggle Metronome"
+            >
+                <Timer className="w-4 h-4" />
+            </button>
+            
+            <div className="flex flex-col gap-0.5 w-16 md:w-20">
+                 <div className="flex items-center justify-between">
+                     <span className="text-[8px] text-gray-500 font-bold font-mono">BPM {bpm}</span>
+                     <select 
+                        value={metronomeSound}
+                        onChange={(e) => setMetronomeSound(e.target.value as MetronomeSound)}
+                        className="bg-transparent text-[8px] text-gray-500 hover:text-white border-none p-0 outline-none text-right cursor-pointer w-1/2"
+                     >
+                         {METRONOME_SOUNDS.map(s => (
+                             <option key={s.id} value={s.id}>{s.label}</option>
+                         ))}
+                     </select>
+                 </div>
+                 <input 
+                   type="range" 
+                   min="40" 
+                   max="240" 
+                   step="1" 
+                   value={bpm} 
+                   onChange={(e) => setBpm(parseInt(e.target.value))}
+                   className="w-full h-1.5 bg-black rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-cyan-600 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-cyan-400"
+                 />
+            </div>
+         </div>
+
+         <div className="w-px h-6 bg-[#444] shrink-0 hidden md:block"></div>
 
          {/* Recorder Controls */}
-         <div className="flex items-center gap-2 shrink-0 bg-black/30 p-1 rounded border border-gray-700">
+         <div className="flex items-center gap-2 shrink-0 bg-black/30 p-1 rounded border border-gray-700 scale-90 md:scale-100 origin-left">
              <button 
                 onClick={toggleRecording} 
                 className={`p-1.5 rounded-full transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-red-500 hover:bg-red-900/50'}`}
@@ -418,49 +503,19 @@ const App: React.FC = () => {
              >
                  <Pause className="w-3 h-3 fill-current" />
              </button>
-
-             <span className="text-xs font-mono text-gray-400 w-12 text-center">
-                 {isRecording ? "REC" : isPlayingBack ? "PLAY" : recordedEvents.length > 0 ? `${recordedEvents.length}ev` : "--"}
-             </span>
-         </div>
-
-         <div className="w-px h-6 bg-[#444] shrink-0"></div>
-
-         {/* Metronome Controls */}
-         <div className="flex items-center gap-2 shrink-0 bg-black/30 px-2 py-1 rounded border border-gray-700">
-             <button 
-                onClick={() => setIsMetronomeOn(!isMetronomeOn)}
-                className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-bold transition-colors ${isMetronomeOn ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
-                title="Toggle Metronome"
-             >
-                 <Timer className="w-3 h-3" />
-                 <span>{bpm}</span>
-             </button>
-             {isMetronomeOn && (
-                 <>
-                    <input 
-                        type="range" 
-                        min="40" 
-                        max="240" 
-                        value={bpm} 
-                        onChange={(e) => setBpm(parseInt(e.target.value))}
-                        className="w-16 h-1 bg-gray-600 appearance-none rounded [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full"
-                    />
-                    <select
-                        value={metronomeSound}
-                        onChange={(e) => setMetronomeSound(e.target.value as MetronomeSound)}
-                        className="bg-gray-800 text-white text-xs px-1 py-0.5 rounded border border-gray-600 focus:outline-none cursor-pointer w-16"
-                    >
-                        {METRONOME_SOUNDS.map(s => (
-                            <option key={s.id} value={s.id}>{s.label}</option>
-                        ))}
-                    </select>
-                 </>
-             )}
          </div>
 
          <div className="flex-1"></div>
          
+         {/* Toggle Piano Visualization Button */}
+         <button 
+            onClick={() => setShowPianoViz(!showPianoViz)}
+            className={`p-1.5 rounded border ${showPianoViz ? 'border-yellow-600 text-yellow-500' : 'border-gray-700 text-gray-500'} hover:text-white transition-colors`}
+            title="Toggle Piano Visualization"
+         >
+             {showPianoViz ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+         </button>
+
          {/* Info Button */}
          <button 
             onClick={() => setShowInfo(true)}
@@ -471,19 +526,21 @@ const App: React.FC = () => {
          </button>
       </div>
 
-      {/* 2. Unified Grid Keyboard Area - Responsive Layout */}
-      <div className="flex-1 bg-gradient-to-b from-[#505050] to-[#2a2a2a] p-2 sm:p-6 flex items-center justify-center overflow-auto shadow-[inset_0_0_30px_rgba(0,0,0,0.8)] relative w-full">
+      {/* 2. Unified Grid Keyboard Area - Responsive Layout (Scale Proportionally) */}
+      <div className="flex-1 bg-gradient-to-b from-[#505050] to-[#2a2a2a] p-2 md:p-6 flex items-center justify-center overflow-hidden shadow-[inset_0_0_30px_rgba(0,0,0,0.8)] relative w-full">
           
           <div 
-            className="grid gap-[3px] transition-transform duration-200 origin-center"
+            className="grid gap-[2px] sm:gap-[3px] flex-shrink-0"
             style={{
                 // 23 units wide. 1u = 4 grid columns. Total = 92 columns.
                 gridTemplateColumns: `repeat(92, 1fr)`,
-                // Responsive width logic:
-                // We want it to be as wide as possible but respecting the aspect ratio (approx 23u x 6u ~ 4:1)
+                // Use 100% width so it fits the container exactly.
                 width: '100%', 
-                maxWidth: '1600px', // Prevent it from getting absurdly huge on 4k screens
-                minWidth: '800px', // Prevent it from getting too small to read
+                maxWidth: '1600px',
+                // Aspect Ratio ensures it scales structurally
+                // ~23 width / 6 height = ~3.83
+                aspectRatio: '23 / 6',
+                maxHeight: '100%', // ensure it doesn't overflow vertically if screen is weirdly wide but short
             }}
           >
               {ALL_ROWS.map((row, rowIdx) => (
@@ -506,38 +563,37 @@ const App: React.FC = () => {
           </div>
       </div>
 
-      {/* 3. Info Status Bar */}
-      <div className="h-8 bg-[#222] border-t border-[#111] border-b border-[#333] flex items-center justify-between px-4 text-[10px] md:text-xs font-mono text-gray-400 shrink-0 select-none">
-          <div className="flex gap-4">
-              <div className="flex items-center gap-2">
-                  <span>Key 1 =</span>
-                  <div className="bg-gray-200 text-black px-1 min-w-[30px] text-center rounded-[2px]">{getRootKeyName(transposeBase)}</div>
+      {/* 3. Info Status Bar - Compact & Complete */}
+      <div className="h-6 md:h-8 bg-[#222] border-t border-[#111] border-b border-[#333] flex items-center justify-between px-2 md:px-4 text-[10px] md:text-xs font-mono text-gray-400 shrink-0 select-none overflow-hidden whitespace-nowrap">
+          <div className="flex gap-2 md:gap-4 items-center">
+              <div className="flex items-center gap-1 md:gap-2">
+                  <span>Base:</span>
+                  <div className="bg-gray-200 text-black px-1 min-w-[20px] text-center rounded-[2px]">{getRootKeyName(transposeBase)}</div>
+              </div>
+              <div className="flex items-center gap-1 md:gap-2">
+                  <span>Vel:</span>
+                  <div className="bg-gray-200 text-black px-1 min-w-[20px] text-center rounded-[2px]">{Math.round(volume * 100)}</div>
               </div>
           </div>
           
-          <div className="flex gap-4">
-              <div className="flex items-center gap-2 cursor-pointer hover:text-white" onClick={cycleSustain} title="Sustain (Esc)">
-                  <span>Sustain</span>
-                  <div className="bg-gray-200 text-black px-1 min-w-[24px] text-center rounded-[2px]">{getSustainValueDisplay()}</div>
-                  <div className="bg-gray-200 text-black px-1 min-w-[24px] text-center rounded-[2px]">{getSustainValueDisplay()}</div>
+          <div className="flex gap-2 md:gap-4 items-center">
+              <div className="flex items-center gap-1 md:gap-2 cursor-pointer hover:text-white" onClick={cycleSustain}>
+                  <span>Sus:</span>
+                  <div className="bg-gray-200 text-black px-1 min-w-[25px] text-center rounded-[2px]">{getSustainValueDisplay()}</div>
               </div>
-              <div className="flex items-center gap-2 hidden sm:flex">
-                  <span>Velocity</span>
-                  <div className="bg-gray-200 text-black px-1 min-w-[24px] text-center rounded-[2px]">{Math.min(127, Math.round(volume * 63.5))}</div>
-                  <div className="bg-gray-200 text-black px-1 min-w-[24px] text-center rounded-[2px]">100</div>
-              </div>
-              <div className="flex items-center gap-2">
-                  <span>Octave</span>
+              <div className="flex items-center gap-1 md:gap-2">
+                  <span>Oct</span>
                   <div className="bg-gray-200 text-black px-1 min-w-[20px] text-center rounded-[2px]">{octaveShift}</div>
-                  <div className="bg-gray-200 text-black px-1 min-w-[20px] text-center rounded-[2px]">0</div>
               </div>
           </div>
       </div>
 
-      {/* 4. Piano Visualization */}
-      <div className="h-auto bg-[#1a1a1a] p-1 flex flex-col gap-1 shadow-[0_-5px_15px_rgba(0,0,0,0.5)] z-20 shrink-0">
-          <PianoKeyboard activeNotes={visualActiveNotes} />
-      </div>
+      {/* 4. Piano Visualization - Collapsible */}
+      {showPianoViz && (
+          <div className="h-24 md:h-auto md:max-h-48 bg-[#1a1a1a] p-1 flex flex-col gap-1 shadow-[0_-5px_15px_rgba(0,0,0,0.5)] z-20 shrink-0 transition-all">
+              <PianoKeyboard activeNotes={visualActiveNotes} />
+          </div>
+      )}
 
       {/* Info Modal */}
       {showInfo && (
@@ -553,57 +609,102 @@ const App: React.FC = () => {
                     </button>
                 </div>
                 <div className="p-6 text-gray-300 text-sm leading-relaxed">
-                    <p className="mb-4">
-                        <strong className="text-white">KeyPiano</strong> is a web-based implementation inspired by the legendary Windows software <strong className="text-white">FreePiano</strong>.
-                    </p>
-                    <p className="mb-4">
-                        It transforms your standard computer keyboard into a low-latency, polyphonic piano synthesizer using Web Audio API. The keymap is designed to maximize playability, allowing you to play chords and melodies efficiently using a grid layout.
+                     <p className="mb-4">
+                        <strong className="text-white">KeyPiano</strong> is a browser-based polyphonic synthesizer inspired by FreePiano.
                     </p>
                     <div className="bg-[#1a1a1a] p-3 rounded border border-[#333] mb-4 space-y-1 font-mono text-xs">
-                        <div className="flex justify-between"><span className="text-gray-500">Esc</span> <span>Toggle Sustain</span></div>
-                        <div className="flex justify-between"><span className="text-gray-500">F3 / F4</span> <span>Transpose - / +</span></div>
-                        <div className="flex justify-between"><span className="text-gray-500">F5 / F6</span> <span>Octave - / +</span></div>
-                        <div className="flex justify-between"><span className="text-gray-500">F7 / F8</span> <span>Volume - / +</span></div>
-                        <div className="flex justify-between"><span className="text-gray-500">PrtSc / ScrLk / Pause</span> <span>Play / Rec / Stop</span></div>
+                         <div className="flex justify-between"><span className="text-gray-500">Esc</span> <span>Sustain</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">F3-F6</span> <span>Transpose/Octave</span></div>
                     </div>
-                    <p className="text-xs text-gray-500 border-t border-[#333] pt-4 mt-4">
-                        This project is open source. The KeyPiano name and web implementation are independent of the original FreePiano software by Wispow.
+                     <p className="text-xs text-gray-500 mb-6">
+                        For mobile users: The keyboard scales to fit your screen in landscape mode.
                     </p>
-                    <div className="mt-4 flex gap-3">
-                         <a href="http://freepiano.tiwb.com/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-blue-400 hover:underline text-xs">
-                             <ExternalLink className="w-3 h-3" /> Visit Original FreePiano
-                         </a>
+                    
+                    <div className="border-t border-[#444] pt-4 space-y-3">
+                        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Related Projects</h3>
+                        
+                        <a href="https://github.com/angushushu/keypiano" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-white hover:text-yellow-500 transition-colors text-xs">
+                            <Github className="w-3 h-3" /> 
+                            <span>KeyPiano (Web) - Source Code</span>
+                        </a>
+
+                        <a href="https://github.com/angushushu/freepyano" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-white hover:text-yellow-500 transition-colors text-xs">
+                            <Github className="w-3 h-3" /> 
+                            <span>FreePyano (Python) - Desktop Remake</span>
+                        </a>
+
+                        <a href="http://freepiano.tiwb.com/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-blue-400 hover:text-blue-300 hover:underline transition-colors text-xs mt-2">
+                             <ExternalLink className="w-3 h-3" /> 
+                             <span>Original FreePiano Website</span>
+                        </a>
                     </div>
                 </div>
             </div>
         </div>
       )}
 
-      {/* Loading/Start Overlays */}
+      {/* Loading/Start Overlays - Redesigned */}
       {!isAudioStarted ? (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm">
-          {isLoading ? (
-             <div className="flex flex-col items-center gap-4">
-                 <Loader2 className="w-12 h-12 text-yellow-500 animate-spin" />
-                 <p className="text-white text-lg font-mono">Loading {INSTRUMENTS.find(i => i.id === currentInstrument)?.name}...</p>
-             </div>
-          ) : (
-            <button
-                onClick={startAudio}
-                className="group px-8 py-4 bg-yellow-600 text-white font-bold text-xl rounded-full shadow-[0_0_30px_rgba(234,179,8,0.4)] hover:bg-yellow-500 hover:scale-105 transition-all flex items-center gap-3"
-            >
-                <Activity className="w-6 h-6 animate-pulse" />
-                <span>Initialize Audio Engine</span>
-            </button>
-          )}
-          {!isLoading && <p className="mt-4 text-gray-500 text-sm">Downloads sample library (~3MB)</p>}
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#18181b] p-4">
+          
+          <div className="flex flex-col items-center max-w-md w-full gap-8">
+              <div className="flex flex-col items-center gap-2">
+                 <div className="p-4 bg-yellow-500/10 rounded-full mb-2">
+                     <Keyboard className="w-16 h-16 text-yellow-500" />
+                 </div>
+                 <h1 className="text-3xl font-bold text-white tracking-tight">KeyPiano</h1>
+                 <p className="text-gray-400 text-center">Web-based polyphonic synthesizer</p>
+              </div>
+
+              {isLoading ? (
+                 <div className="flex flex-col items-center gap-4 bg-[#27272a] p-8 rounded-xl w-full border border-[#3f3f46]">
+                     <Loader2 className="w-10 h-10 text-yellow-500 animate-spin" />
+                     <div className="flex flex-col items-center">
+                        <p className="text-white font-medium">Loading Sounds...</p>
+                        <p className="text-sm text-gray-500">{INSTRUMENTS.find(i => i.id === selectedStartInstrument)?.name}</p>
+                     </div>
+                 </div>
+              ) : (
+                <div className="flex flex-col gap-4 w-full bg-[#27272a] p-6 rounded-xl border border-[#3f3f46]">
+                    
+                    <div className="space-y-2">
+                        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                            <Music className="w-3 h-3" /> Select Sound Source
+                        </label>
+                        <select 
+                            value={selectedStartInstrument}
+                            onChange={(e) => setSelectedStartInstrument(e.target.value as InstrumentID)}
+                            className="w-full bg-[#18181b] text-white p-3 rounded-lg border border-[#3f3f46] focus:border-yellow-500 focus:outline-none appearance-none cursor-pointer"
+                        >
+                            {INSTRUMENTS.map(inst => (
+                                <option key={inst.id} value={inst.id}>
+                                    {inst.name} {inst.type === 'gm' ? '(Fast)' : '(High Quality)'}
+                                </option>
+                            ))}
+                        </select>
+                         <p className="text-[10px] text-gray-500">
+                             {selectedStartInstrument === 'salamander' ? 'Requires ~3MB download. Best quality.' : 'Faster load time. Lower quality.'}
+                         </p>
+                    </div>
+
+                    <button
+                        onClick={startAudio}
+                        className="w-full py-4 bg-yellow-600 hover:bg-yellow-500 text-white font-bold text-lg rounded-lg shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 mt-2"
+                    >
+                        <Activity className="w-5 h-5" />
+                        <span>Start Engine</span>
+                    </button>
+                    
+                    <p className="text-[10px] text-center text-gray-500 mt-2">
+                        Audio requires interaction to unlock. 
+                    </p>
+                </div>
+              )}
+          </div>
         </div>
       ) : isLoading && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="bg-[#222] p-6 rounded-lg shadow-xl flex flex-col items-center gap-4 border border-gray-700">
-                <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
-                <p className="text-gray-200">Loading {INSTRUMENTS.find(i => i.id === currentInstrument)?.name}...</p>
-            </div>
+            <Loader2 className="w-10 h-10 text-yellow-500 animate-spin" />
         </div>
       )}
     </div>

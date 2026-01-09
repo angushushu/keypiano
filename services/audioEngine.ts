@@ -1,8 +1,10 @@
+
 // Audio Engine - Sampler Based
 
 // Instrument Definitions
 export const INSTRUMENTS = [
-    { id: 'hq_piano', name: 'Grand Piano (HQ)', type: 'custom' },
+    { id: 'salamander', name: 'Yamaha C5 Grand (Pro)', type: 'custom' }, // New Best Option
+    { id: 'hq_piano', name: 'Standard Piano (Lite)', type: 'custom' },
     { id: 'electric_grand_piano', name: 'Electric Piano', type: 'gm' },
     { id: 'drawbar_organ', name: 'Organ', type: 'gm' },
     { id: 'acoustic_guitar_steel', name: 'Acoustic Guitar', type: 'gm' },
@@ -20,7 +22,21 @@ export const METRONOME_SOUNDS: {id: MetronomeSound, label: string}[] = [
     { id: 'woodblock', label: 'Wood' }
 ];
 
-// Source 1: Original High Quality Piano (fuhton)
+// Source 1: Salamander Grand Piano (Yamaha C5) - Hosted by Tone.js
+// High quality samples, mapped every minor third.
+const SALAMANDER_BASE = 'https://tonejs.github.io/audio/salamander/';
+const SALAMANDER_MAP: Record<string, string> = {
+    'A0': 'A0.mp3', 'C1': 'C1.mp3', 'D#1': 'Ds1.mp3', 'F#1': 'Fs1.mp3', 'A1': 'A1.mp3',
+    'C2': 'C2.mp3', 'D#2': 'Ds2.mp3', 'F#2': 'Fs2.mp3', 'A2': 'A2.mp3',
+    'C3': 'C3.mp3', 'D#3': 'Ds3.mp3', 'F#3': 'Fs3.mp3', 'A3': 'A3.mp3',
+    'C4': 'C4.mp3', 'D#4': 'Ds4.mp3', 'F#4': 'Fs4.mp3', 'A4': 'A4.mp3',
+    'C5': 'C5.mp3', 'D#5': 'Ds5.mp3', 'F#5': 'Fs5.mp3', 'A5': 'A5.mp3',
+    'C6': 'C6.mp3', 'D#6': 'Ds6.mp3', 'F#6': 'Fs6.mp3', 'A6': 'A6.mp3',
+    'C7': 'C7.mp3', 'D#7': 'Ds7.mp3', 'F#7': 'Fs7.mp3', 'A7': 'A7.mp3',
+    'C8': 'C8.mp3'
+};
+
+// Source 2: Original High Quality Piano (fuhton)
 const HQ_PIANO_BASE = 'https://raw.githubusercontent.com/fuhton/piano-mp3/master/piano-mp3/';
 const HQ_PIANO_MAP: Record<string, string> = {
   'A0': 'A0.mp3', 
@@ -34,7 +50,7 @@ const HQ_PIANO_MAP: Record<string, string> = {
   'C8': 'C8.mp3'
 };
 
-// Source 2: General MIDI (gleitz/midi-js-soundfonts - Musyng Kite)
+// Source 3: General MIDI (gleitz/midi-js-soundfonts - Musyng Kite)
 const GM_BASE = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/';
 
 // MIDI Note Helper
@@ -52,7 +68,7 @@ class AudioEngine {
     public isLoaded = false;
     private volume: number = 0.5;
     private sustainLevel: SustainLevel = 'SHORT';
-    private currentInstrument: InstrumentID = 'hq_piano';
+    private currentInstrument: InstrumentID = 'salamander';
 
     // Metronome State
     private nextNoteTime: number = 0.0;
@@ -63,7 +79,7 @@ class AudioEngine {
     private scheduleAheadTime: number = 0.1; // s
     private metronomeSound: MetronomeSound = 'beep';
 
-    public async init(instrumentId: InstrumentID = 'hq_piano') {
+    public async init(instrumentId: InstrumentID = 'salamander') {
         if (!this.ctx) {
             this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
             
@@ -87,8 +103,18 @@ class AudioEngine {
         }
         
         // Resume context if suspended (browser policy)
-        if (this.ctx.state === 'suspended') {
-            await this.ctx.resume();
+        await this.resumeIfSuspended();
+    }
+
+    // Helper for mobile: Browsers suspend context if no interaction.
+    // We call this on every note trigger to be safe.
+    public async resumeIfSuspended() {
+        if (this.ctx && this.ctx.state === 'suspended') {
+            try {
+                await this.ctx.resume();
+            } catch (e) {
+                console.error("Audio Context resume failed", e);
+            }
         }
     }
 
@@ -193,16 +219,19 @@ class AudioEngine {
         const instDef = INSTRUMENTS.find(i => i.id === instrumentId);
         if (!instDef) return;
 
-        if (instDef.type === 'custom' && instrumentId === 'hq_piano') {
-            await this.loadSamples(HQ_PIANO_BASE, HQ_PIANO_MAP, false);
+        if (instrumentId === 'salamander') {
+            await this.loadSamples(SALAMANDER_BASE, SALAMANDER_MAP);
+        } else if (instrumentId === 'hq_piano') {
+            await this.loadSamples(HQ_PIANO_BASE, HQ_PIANO_MAP);
         } else {
+            // GM Logic
             const map: Record<string, string> = {};
             for (let i = 21; i <= 108; i += 3) {
                 const noteName = this.getNoteNameForGM(i);
                 map[this.midiToStandard(i)] = `${noteName}.mp3`;
             }
             if (!map['C4']) map['C4'] = 'C4.mp3';
-            await this.loadSamples(`${GM_BASE}${instrumentId}-mp3/`, map, true);
+            await this.loadSamples(`${GM_BASE}${instrumentId}-mp3/`, map);
         }
 
         this.isLoaded = true;
@@ -221,7 +250,7 @@ class AudioEngine {
         return `${name}${oct}`;
     }
 
-    private async loadSamples(baseUrl: string, map: Record<string, string>, isGM: boolean) {
+    private async loadSamples(baseUrl: string, map: Record<string, string>) {
         const promises = Object.entries(map).map(async ([note, file]) => {
             try {
                 const url = `${baseUrl}${file}`;
@@ -292,8 +321,8 @@ class AudioEngine {
     public playNote(note: string, transpose: number = 0) {
         if (!this.ctx || !this.isLoaded || !this.masterGain) return;
         
-        // Resume if needed
-        if (this.ctx.state === 'suspended') this.ctx.resume();
+        // Mobile Fix: Always try to resume context on user interaction
+        this.resumeIfSuspended();
 
         const mapKey = `${note}_${transpose}`;
         this.stopNote(note, transpose); 

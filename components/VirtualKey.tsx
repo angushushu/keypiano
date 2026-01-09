@@ -77,7 +77,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
 
   const baseClasses = `
     relative rounded-[4px] flex flex-col items-center justify-center 
-    select-none transition-all duration-75 box-border
+    select-none transition-all duration-75 box-border cursor-pointer
     ${height > 1 ? 'h-full self-stretch' : ''} 
   `;
 
@@ -87,7 +87,8 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   const dummyLook = "opacity-0 pointer-events-none"; // Invisible
 
   const isFunctionKey = (customLabel || code.startsWith('F') || code === 'Escape') && !mappedNote; 
-  const functionTextClass = "text-[11px] tracking-tight";
+  // Scalable font size for function keys (text-[8px] sm:text-[11px])
+  const functionTextClass = "text-[7px] sm:text-[11px] tracking-tight";
 
   let stateClass = isActive ? activeLook : normalLook;
   if (isDummy) stateClass = dummyLook;
@@ -102,11 +103,11 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
 
   // Render dots for Jianpu
   const renderDots = (count: number) => {
-      if (count === 0) return <div className="h-[4px]"></div>;
+      if (count === 0) return <div className="h-[2px] sm:h-[4px]"></div>;
       return (
-          <div className="flex gap-[1px] justify-center h-[4px]">
+          <div className="flex gap-[1px] justify-center h-[2px] sm:h-[4px]">
               {Array.from({ length: Math.abs(count) }).map((_, i) => (
-                  <div key={i} className="w-[3px] h-[3px] rounded-full bg-black/70"></div>
+                  <div key={i} className="w-[2px] h-[2px] sm:w-[3px] sm:h-[3px] rounded-full bg-black/70"></div>
               ))}
           </div>
       );
@@ -124,39 +125,41 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
     >
       {/* Top Left Label (QWERTY) */}
       {!isFunctionKey && !isDummy && (
-          <span className="absolute top-[3px] left-[4px] text-[10px] font-sans text-gray-400 font-bold leading-none">
+          // Hide on mobile/tablet (hidden by default), show only on large screens (lg:block)
+          <span className="absolute top-[2px] left-[3px] text-[10px] font-sans text-gray-400 font-bold leading-none hidden lg:block">
             {displayLabel}
           </span>
       )}
       
       {/* Center Label (Function Keys) */}
       {isFunctionKey && !isDummy && (
-          <span className={`${functionTextClass} text-gray-600 font-bold font-sans`}>{displayLabel}</span>
+          // Hide on mobile/tablet, show only on large screens
+          <span className={`${functionTextClass} text-gray-600 font-bold font-sans hidden lg:block`}>{displayLabel}</span>
       )}
 
       {/* Jianpu Notation Label */}
       {jianpu && (
         <div className={`flex flex-col items-center justify-center leading-none ${isActive ? 'text-blue-900' : 'text-gray-800'}`}>
           {/* Top Dots (if diff > 0) */}
-          <div className="mb-[2px]">
-             {jianpu.diff > 0 ? renderDots(jianpu.diff) : <div className="h-[4px]"></div>}
+          <div className="mb-[1px] sm:mb-[2px]">
+             {jianpu.diff > 0 ? renderDots(jianpu.diff) : <div className="h-[2px] sm:h-[4px]"></div>}
           </div>
           
-          {/* Main Number - Increased size for better visibility on taller keys */}
-          <span className="text-[18px] font-bold font-mono -my-[2px]">
+          {/* Main Number - Heavily reduced for mobile (9px) vs Desktop (18px) */}
+          <span className="text-[9px] sm:text-[18px] font-bold font-mono -my-[1px] sm:-my-[2px]">
              {jianpu.number}
           </span>
 
           {/* Bottom Dots (if diff < 0) */}
-          <div className="mt-[2px]">
-             {jianpu.diff < 0 ? renderDots(jianpu.diff) : <div className="h-[4px]"></div>}
+          <div className="mt-[1px] sm:mt-[2px]">
+             {jianpu.diff < 0 ? renderDots(jianpu.diff) : <div className="h-[2px] sm:h-[4px]"></div>}
           </div>
         </div>
       )}
       
       {/* Spacebar branding */}
       {code === 'Space' && (
-          <span className="text-gray-400 text-[11px] font-sans mt-2 tracking-widest uppercase opacity-50">KeyPiano</span>
+          <span className="text-gray-400 text-[8px] sm:text-[11px] font-sans mt-1 sm:mt-2 tracking-widest uppercase opacity-50 hidden xs:block">KeyPiano</span>
       )}
     </div>
   );
