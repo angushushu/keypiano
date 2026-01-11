@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { Theme } from '../theme';
 
@@ -18,6 +19,17 @@ interface VirtualKeyProps {
   theme: Theme; 
 }
 
+// Map Note Name to Number
+const NOTE_TO_JIANPU_MAP: Record<string, string> = {
+  'C': '1', 'C#': '#1', 'Db': 'b2',
+  'D': '2', 'D#': '#2', 'Eb': 'b3',
+  'E': '3', 
+  'F': '4', 'F#': '#4', 'Gb': 'b5',
+  'G': '5', 'G#': '#5', 'Ab': 'b6',
+  'A': '6', 'A#': '#6', 'Bb': 'b7',
+  'B': '7'
+};
+
 // Helper to convert Note (e.g. C4, F#5) to Jianpu (1, #4 with dots)
 const getJianpu = (note: string) => {
   const match = note.match(/([A-G][#b]?)(-?\d+)/);
@@ -26,18 +38,7 @@ const getJianpu = (note: string) => {
   let [_, name, octStr] = match;
   let octave = parseInt(octStr);
 
-  // Map Note Name to Number
-  const map: Record<string, string> = {
-    'C': '1', 'C#': '#1', 'Db': 'b2',
-    'D': '2', 'D#': '#2', 'Eb': 'b3',
-    'E': '3', 
-    'F': '4', 'F#': '#4', 'Gb': 'b5',
-    'G': '5', 'G#': '#5', 'Ab': 'b6',
-    'A': '6', 'A#': '#6', 'Bb': 'b7',
-    'B': '7'
-  };
-
-  const number = map[name] || name;
+  const number = NOTE_TO_JIANPU_MAP[name] || name;
   const diff = octave - 4;
   return { number, diff };
 };

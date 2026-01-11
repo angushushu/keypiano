@@ -1,5 +1,6 @@
 
-import { NOTE_NAMES } from '../constants';
+
+import { NOTE_NAMES, FLAT_TO_SHARP } from '../constants';
 
 // Extend Window interface for Webkit Audio Context support
 declare global {
@@ -375,8 +376,7 @@ class AudioEngine {
         if (!match) return 0;
         let [_, name, octStr] = match;
         if (name.endsWith('b')) {
-             const sharpMap: any = {'Db':'C#', 'Eb':'D#', 'Gb':'F#', 'Ab':'G#', 'Bb':'A#'};
-             if (sharpMap[name]) name = sharpMap[name];
+             if (FLAT_TO_SHARP[name]) name = FLAT_TO_SHARP[name];
         }
         const index = NOTE_NAMES.indexOf(name);
         const octave = parseInt(octStr);
@@ -472,6 +472,25 @@ class AudioEngine {
 
             this.activeSources.delete(mapKey);
         }
+    }
+
+    public stopAllNotes() {
+        if (!this.ctx) return;
+        this.activeSources.forEach(({ source, gain }) => {
+            try {
+                gain.gain.cancelScheduledValues(this.ctx!.currentTime);
+                gain.gain.setValueAtTime(gain.gain.value, this.ctx!.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx!.currentTime + 0.1);
+                source.stop(this.ctx!.currentTime + 0.1);
+                setTimeout(() => {
+                    source.disconnect();
+                    gain.disconnect();
+                }, 150);
+            } catch (e) {
+                console.warn('Error stopping note', e);
+            }
+        });
+        this.activeSources.clear();
     }
 }
 

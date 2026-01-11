@@ -5,6 +5,8 @@ import { KeyDef } from './types';
 // --- SHARED CONSTANTS ---
 export const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
+export const FLAT_TO_SHARP: Record<string, string> = {'Db':'C#', 'Eb':'D#', 'Gb':'F#', 'Ab':'G#', 'Bb':'A#'};
+
 // --- HELPERS ---
 export const getTransposedNote = (note: string, semitones: number): string => {
   const match = note.match(/([A-G][#b]?)(-?\d+)/);
@@ -12,9 +14,7 @@ export const getTransposedNote = (note: string, semitones: number): string => {
   let [_, name, octStr] = match;
   let octave = parseInt(octStr);
   
-  // Normalize flats to sharps for consistent lookup
-  const flatMap: Record<string, string> = {'Db':'C#', 'Eb':'D#', 'Gb':'F#', 'Ab':'G#', 'Bb':'A#'};
-  if (flatMap[name]) name = flatMap[name];
+  if (FLAT_TO_SHARP[name]) name = FLAT_TO_SHARP[name];
   
   let index = NOTE_NAMES.indexOf(name);
   if (index === -1) return note;
@@ -120,14 +120,23 @@ export const KEY_TO_NOTE = MAP_FREEPIANO;
 export const FULL_ROW_0: KeyDef[] = [
   { code: 'Escape', label: 'Esc', customLabel: 'SU' }, 
   { code: 'dummy_0_1', label: '', width: 1, isDummy: true },
-  { code: 'F1', label: 'F1' }, { code: 'F2', label: 'F2' }, { code: 'F3', label: 'F3', customLabel: 'KS-' }, { code: 'F4', label: 'F4', customLabel: 'KS+' },
+  { code: 'F1', label: 'F1', customLabel: 'OC-' }, { code: 'F2', label: 'F2', customLabel: 'OC+' }, 
+  { code: 'F3', label: 'F3', customLabel: 'KS-' }, { code: 'F4', label: 'F4', customLabel: 'KS+' },
   { code: 'dummy_0_2', label: '', width: 0.5, isDummy: true },
-  { code: 'F5', label: 'F5', customLabel: 'OC-' }, { code: 'F6', label: 'F6', customLabel: 'OC+' }, { code: 'F7', label: 'F7', customLabel: 'V-' }, { code: 'F8', label: 'F8', customLabel: 'V+' },
+  { code: 'F5', label: 'F5', customLabel: 'V-' }, { code: 'F6', label: 'F6', customLabel: 'V+' }, 
+  { code: 'F7', label: 'F7', customLabel: 'Metro' }, { code: 'F8', label: 'F8', customLabel: 'View' },
   { code: 'dummy_0_3', label: '', width: 0.5, isDummy: true },
-  { code: 'F9', label: 'F9' }, { code: 'F10', label: 'F10' }, { code: 'F11', label: 'F11' }, { code: 'F12', label: 'F12' },
+  { code: 'F9', label: 'F9', customLabel: 'Play' }, 
+  { code: 'F10', label: 'F10', customLabel: 'Rec' }, 
+  { code: 'F11', label: 'F11', customLabel: 'Stop' }, 
+  { code: 'F12', label: 'F12', customLabel: 'Rst' },
+  // Alignment fix: Gap between Main block and Nav block (0.5u)
   { code: 'dummy_0_4', label: '', width: 0.5, isDummy: true },
-  { code: 'PrintScreen', label: 'Play' }, { code: 'ScrollLock', label: 'Rec' }, { code: 'Pause', label: 'Stop' },
-  { code: 'dummy_0_5', label: '', width: 0.5, isDummy: true },
+  // Nav Block area (3u) - currently empty placeholder
+  { code: 'dummy_0_5', label: '', width: 3, isDummy: true },
+  // Gap between Nav block and Numpad (0.5u)
+  { code: 'dummy_0_6', label: '', width: 0.5, isDummy: true },
+  // Numpad area (4u) - Coffee Button
   { code: 'Coffee', label: 'Support', customLabel: '☕ Buy me a Coffee', width: 4 }, 
 ];
 

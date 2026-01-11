@@ -896,22 +896,29 @@ const App: React.FC = () => {
   const handleFunctionKey = (code: string) => {
       const actions: Record<string, () => void> = {
           'Escape': cycleSustain,
+          'F1': () => setOctaveShift(o => Math.max(-3, o - 1)), // Octave Down
+          'F2': () => setOctaveShift(o => Math.min(3, o + 1)),  // Octave Up
           'F3': () => setTransposeBase(t => t - 1),
           'F4': () => setTransposeBase(t => t + 1),
-          'F5': () => setOctaveShift(o => Math.max(-3, o - 1)),
-          'F6': () => setOctaveShift(o => Math.min(3, o + 1)),
-          'F7': () => setVolume(v => Math.max(0, parseFloat((v - 0.1).toFixed(2)))),
-          'F8': () => setVolume(v => Math.min(2, parseFloat((v + 0.1).toFixed(2)))),
-          'PrintScreen': togglePlayback,
-          'ScrollLock': toggleRecording,
-          'Pause': handleStopFullReset,
+          'F5': () => setVolume(v => Math.max(0, parseFloat((v - 0.1).toFixed(2)))), // Volume Down
+          'F6': () => setVolume(v => Math.min(2, parseFloat((v + 0.1).toFixed(2)))), // Volume Up
+          'F7': () => setIsMetronomeOn(prev => !prev), // Metronome Toggle
+          'F8': () => setMainView(prev => prev === 'stave' ? 'keyboard' : 'stave'), // View Toggle
+          'F9': togglePlayback, // PLAY
+          'F10': toggleRecording, // RECORD
+          'F11': handleStopFullReset, // STOP (Transport)
+          'F12': () => { // RESET (State)
+              setTransposeBase(0);
+              setOctaveShift(0);
+              audioEngine.stopAllNotes(); // Proper Panic/Reset
+          },
           'Coffee': () => window.open('https://paypal.me/angushushu', '_blank')
       };
       if (actions[code]) actions[code]();
   };
 
   const playNoteByCode = useCallback((code: string) => {
-    if (['Escape', 'PrintScreen', 'ScrollLock', 'Pause', 'Coffee'].includes(code) || code.startsWith('F')) {
+    if (['Escape', 'Coffee'].includes(code) || code.startsWith('F')) {
         handleFunctionKey(code);
     }
     updateModifiers(code, true);
@@ -1222,9 +1229,22 @@ const App: React.FC = () => {
                 <div className="grid gap-[3px] sm:gap-[4px] lg:gap-[5px] flex-shrink-0" style={{ gridTemplateColumns: `repeat(92, 1fr)`, gridTemplateRows: `repeat(6, 1fr)`, width: '100%', maxWidth: '1600px', aspectRatio: '23 / 6', maxHeight: '100%' }}>
                     {ALL_ROWS.map((row, rowIdx) => (
                         <React.Fragment key={rowIdx}>
-                            {row.map((k, idx) => (
+                            {row.map((k, idx) => {
+                                // Dynamic Note Calculation for Visuals
+                                const baseNote = currentKeyMap[k.code];
+                                let displayedNote = baseNote;
+                                
+                                if (baseNote) {
+                                    // Logic mimics playNoteByCode to accurately reflect what pitch would play
+                                    let effectiveTranspose = tempTranspose;
+                                    if (IMMUNE_TO_MODIFIERS.has(k.code)) effectiveTranspose = 0;
+                                    const totalShift = transposeBase + (octaveShift * 12) + effectiveTranspose;
+                                    displayedNote = getTransposedNote(baseNote, totalShift);
+                                }
+
+                                return (
                                 <VirtualKey key={k.code + idx} {...k}
-                                    note={currentKeyMap[k.code]} 
+                                    note={displayedNote} 
                                     customLabel={k.code === 'Coffee' ? t.buyCoffee : k.customLabel}
                                     isActive={
                                         activeKeys.has(k.code) || 
@@ -1236,7 +1256,7 @@ const App: React.FC = () => {
                                     isPlaybackActive={isPracticeMode && playbackKeys.has(k.code)}
                                     onMouseDown={handleMouseDown} onMouseUp={handleMouseUp} theme={theme}
                                 />
-                            ))}
+                            )})}
                         </React.Fragment>
                     ))}
                 </div>
