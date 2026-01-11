@@ -1,20 +1,32 @@
+
 import React, { useRef } from 'react';
+import { Theme } from '../theme';
+import { NOTE_NAMES } from '../constants';
 
 interface PianoKeyboardProps {
-    activeNotes: string[]; // List of currently playing notes (e.g. "C4", "F#5")
+    activeNotes: string[]; // User triggered notes (Strong)
+    playbackNotes?: string[]; // Playback/Practice triggered notes (Ghost)
     onPlayNote: (note: string) => void;
     onStopNote: (note: string) => void;
+    theme?: Theme;
 }
 
-const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, onPlayNote, onStopNote }) => {
-    // Standard 88-key piano: A0 to C8
-    const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNotes = [], onPlayNote, onStopNote, theme }) => {
+    // Fallback if no theme provided
+    const t = theme || {
+        pianoBg: 'bg-black',
+        pianoWhiteKey: 'bg-gradient-to-b from-white to-gray-200',
+        pianoWhiteKeyActive: 'bg-yellow-400',
+        pianoWhiteKeyPlayback: 'bg-green-300',
+        pianoBlackKey: 'bg-gradient-to-b from-gray-800 to-black',
+        pianoBlackKeyActive: 'bg-yellow-600',
+        pianoBlackKeyPlayback: 'bg-green-700',
+    };
     
     const allKeys = [];
     
     // A0 (Index 0 for loop) to C8 (Index 87)
     for (let i = 0; i < 88; i++) {
-        // A0 is MIDI note 21.
         const midi = i + 21;
         const octave = Math.floor(midi / 12) - 1;
         const noteNameIndex = midi % 12;
@@ -36,51 +48,40 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, onPlayNote, 
     
     // Helper to handle both click and swipe (glissando) for MOUSE
     const handleNoteAction = (noteId: string, action: 'down' | 'up' | 'enter' | 'leave', e: React.MouseEvent) => {
-        e.preventDefault(); // Prevent default drag selection behavior
+        e.preventDefault(); 
         
         if (action === 'down') {
             onPlayNote(noteId);
         } else if (action === 'up') {
             onStopNote(noteId);
         } else if (action === 'enter') {
-            // Glissando: play if mouse is held
             if (e.buttons === 1) onPlayNote(noteId);
         } else if (action === 'leave') {
-            // Glissando: stop if mouse is held
             if (e.buttons === 1) onStopNote(noteId);
         }
     };
 
     // TOUCH HANDLERS
     const handleTouchStart = (e: React.TouchEvent, noteId: string) => {
-        // We do not strictly call e.preventDefault() here to allow multi-touch to work smoothly
-        // without blocking the main thread significantly, but we rely on CSS touch-action: none.
-        
         onPlayNote(noteId);
         lastTouchNoteId.current = noteId;
     };
 
     const handleTouchMove = (e: React.TouchEvent) => {
-        // Identify element under finger
         const touch = e.touches[0];
         const target = document.elementFromPoint(touch.clientX, touch.clientY);
-        
-        // We look for the data-note-id attribute
         const keyEl = target?.closest('[data-note-id]');
         
         if (keyEl) {
             const noteId = keyEl.getAttribute('data-note-id');
             if (noteId && noteId !== lastTouchNoteId.current) {
-                // Stopped previous note
                 if (lastTouchNoteId.current) {
                     onStopNote(lastTouchNoteId.current);
                 }
-                // Start new note
                 onPlayNote(noteId);
                 lastTouchNoteId.current = noteId;
             }
         } else {
-            // Finger moved off keyboard
             if (lastTouchNoteId.current) {
                 onStopNote(lastTouchNoteId.current);
                 lastTouchNoteId.current = null;
@@ -97,23 +98,31 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, onPlayNote, 
 
     return (
         <div 
-            className="relative h-48 md:h-60 flex select-none overflow-hidden bg-black p-1 rounded border-t-4 border-gray-700 shadow-inner w-full cursor-pointer touch-none"
-            style={{ touchAction: 'none' }} // Critical for preventing scroll on mobile
-            onMouseLeave={() => {
-                // Failsafe for mouse
-            }}
+            className={`relative h-48 md:h-60 flex select-none overflow-hidden p-1 rounded w-full cursor-pointer touch-none ${t.pianoBg}`}
+            style={{ touchAction: 'none' }}
+            onMouseLeave={() => {}}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             onTouchCancel={handleTouchEnd}
         >
             {whiteKeys.map((k) => {
-                 const isActive = activeNotes.includes(k.noteId);
+                 const isUserActive = activeNotes.includes(k.noteId);
+                 const isPlaybackActive = playbackNotes.includes(k.noteId);
                  
+                 let keyClass = t.pianoWhiteKey;
+                 // Priority changed: Playback color stays even if pressed (User requested)
+                 // But we add brightness to indicate press if needed
+                 if (isPlaybackActive) keyClass = t.pianoWhiteKeyPlayback;
+                 else if (isUserActive) keyClass = t.pianoWhiteKeyActive;
+
+                 // Visual feedback for press on top of color
+                 const extraClass = (isUserActive && isPlaybackActive) ? '!brightness-110' : '';
+
                  return (
                      <div 
                          key={k.noteId}
-                         data-note-id={k.noteId} // ID for elementFromPoint lookup
-                         className={`flex-1 border-l border-b border-r border-gray-400 rounded-b-[4px] relative ${isActive ? 'bg-yellow-400 !bg-none shadow-[0_0_10px_orange]' : 'bg-gradient-to-b from-white to-gray-200'}`}
+                         data-note-id={k.noteId} 
+                         className={`flex-1 border-l border-b border-r border-gray-400 rounded-b-[4px] relative ${keyClass} ${extraClass}`}
                          onMouseDown={(e) => handleNoteAction(k.noteId, 'down', e)}
                          onMouseUp={(e) => handleNoteAction(k.noteId, 'up', e)}
                          onMouseEnter={(e) => handleNoteAction(k.noteId, 'enter', e)}
@@ -132,22 +141,27 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, onPlayNote, 
                  {allKeys.map((k) => {
                      if (!k.isBlack) return null;
                      
-                     // Find which white key this follows.
                      const prevWhiteIndex = whiteKeys.findIndex(wk => wk.midi === k.midi - 1);
                      if (prevWhiteIndex === -1) return null;
 
-                     // Calculate position.
                      const unitWidthPct = 100 / whiteKeys.length;
-                     const blackWidthPct = unitWidthPct * 0.65; // Slightly narrower than white
+                     const blackWidthPct = unitWidthPct * 0.65;
                      const leftPct = (prevWhiteIndex + 1) * unitWidthPct - (blackWidthPct / 2);
                      
-                     const isActive = activeNotes.includes(k.noteId);
+                     const isUserActive = activeNotes.includes(k.noteId);
+                     const isPlaybackActive = playbackNotes.includes(k.noteId);
+
+                     let keyClass = t.pianoBlackKey;
+                     if (isPlaybackActive) keyClass = t.pianoBlackKeyPlayback;
+                     else if (isUserActive) keyClass = t.pianoBlackKeyActive;
+
+                     const extraClass = (isUserActive && isPlaybackActive) ? '!brightness-125' : '';
 
                      return (
                          <div 
                              key={k.noteId}
-                             data-note-id={k.noteId} // ID for elementFromPoint lookup
-                             className={`absolute h-[64%] border-b-4 border-gray-800 rounded-b-[3px] z-10 pointer-events-auto ${isActive ? 'bg-yellow-600 border-yellow-800 shadow-[0_0_10px_orange]' : 'bg-gradient-to-b from-gray-800 to-black'}`}
+                             data-note-id={k.noteId} 
+                             className={`absolute h-[64%] border-b-4 rounded-b-[3px] z-10 pointer-events-auto ${keyClass} ${extraClass}`}
                              style={{
                                  left: `${leftPct}%`,
                                  width: `${blackWidthPct}%`

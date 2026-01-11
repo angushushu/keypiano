@@ -1,17 +1,11 @@
+
+import { Midi } from '@tonejs/midi';
 import { InstrumentID } from './audioEngine';
+import { NOTE_NAMES } from '../constants';
 
-// Interfaces for internal use
-export interface MidiEvent {
-    deltaTime: number;
-    type: string;
-    channel: number;
-    note: number;
-    velocity: number;
-    subtype?: string; // For meta events
-}
-
+// Internal App Event Structure
 export interface AppEvent {
-    time: number;
+    time: number; // in milliseconds
     type: 'on' | 'off';
     note: string;
     transpose: number;
@@ -19,258 +13,146 @@ export interface AppEvent {
     velocity?: number;
 }
 
-// Helper: Note Name to MIDI Number (C4 = 60)
-const NOTE_TO_MIDI: Record<string, number> = {};
-const MIDI_TO_NOTE: Record<number, string> = {};
-const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+// Helper: Convert MIDI Number (60) to Note Name (C4)
+const midiToNote = (midi: number): string => {
+    const octave = Math.floor(midi / 12) - 1;
+    const nameIdx = midi % 12;
+    return `${NOTE_NAMES[nameIdx]}${octave}`;
+};
 
-(function initNotes() {
-    for (let i = 0; i < 128; i++) {
-        const octave = Math.floor(i / 12) - 1;
-        const nameIdx = i % 12;
-        const name = `${NOTE_NAMES[nameIdx]}${octave}`;
-        NOTE_TO_MIDI[name] = i;
-        MIDI_TO_NOTE[i] = name;
-    }
-})();
-
-// Helper: Write Variable Length Quantity
-function writeVarInt(value: number): number[] {
-    const bytes = [];
-    let buffer = value & 0x7F;
-    while ((value >>= 7)) {
-        buffer <<= 8;
-        buffer |= ((value & 0x7F) | 0x80);
-    }
-    while (true) {
-        bytes.push(buffer & 0xFF);
-        if (buffer & 0x80) buffer >>= 8;
-        else break;
-    }
-    return bytes;
-}
-
-// Helper: Read Variable Length Quantity
-function readVarInt(view: DataView, offset: number): { value: number; length: number } {
-    let result = 0;
-    let length = 0;
-    let byte = 0;
+// Helper: Convert Note Name (C4) to MIDI Number (60)
+const noteToMidi = (note: string): number => {
+    const match = note.match(/([A-G][#b]?)(-?\d+)/);
+    if (!match) return 60; // default Middle C
+    let [_, name, octStr] = match;
+    const octave = parseInt(octStr);
     
-    do {
-        byte = view.getUint8(offset + length);
-        result = (result << 7) | (byte & 0x7f);
-        length++;
-    } while (byte & 0x80);
+    // Handle flats
+    const flatMap: Record<string, string> = {'Db':'C#', 'Eb':'D#', 'Gb':'F#', 'Ab':'G#', 'Bb':'A#'};
+    if (flatMap[name]) name = flatMap[name];
+    
+    const idx = NOTE_NAMES.indexOf(name);
+    return (octave + 1) * 12 + idx;
+};
 
-    return { value: result, length };
-}
+// --- IMPORT FUNCTION ---
+export function parseMidiFile(buffer: ArrayBuffer): AppEvent[] {
+    try {
+        // 1. Load buffer into Tonejs/Midi
+        const midi = new Midi(buffer);
+        const events: AppEvent[] = [];
 
-// Helper: String to Bytes
-function stringToBytes(str: string): number[] {
-    return str.split('').map(c => c.charCodeAt(0));
+        // 2. Iterate all tracks
+        midi.tracks.forEach(track => {
+            // Tonejs/Midi automatically handles:
+            // - Converting Ticks to Seconds (handling tempo changes map)
+            // - Parsing Running Status
+            // - Pairing NoteOn/NoteOff into "Note" objects with duration
+            
+            track.notes.forEach(note => {
+                // Create Note ON event
+                events.push({
+                    time: note.time * 1000, // Convert seconds to ms
+                    type: 'on',
+                    note: note.name, // e.g., "C4", "F#5"
+                    transpose: 0,
+                    instrumentId: 'salamander', // Default, logic could be enhanced to map MIDI programs
+                    velocity: Math.round(note.velocity * 127)
+                });
+
+                // Create Note OFF event
+                events.push({
+                    time: (note.time + note.duration) * 1000, // Seconds to ms
+                    type: 'off',
+                    note: note.name,
+                    transpose: 0,
+                    instrumentId: 'salamander'
+                });
+            });
+        });
+
+        // 3. Sort Events
+        // Important: If times are identical, Note OFF should come before Note ON 
+        // to handle legato properly on monophonic channels or same-key presses.
+        return events.sort((a, b) => {
+            if (Math.abs(a.time - b.time) < 0.1) {
+                const typeA = a.type === 'off' ? 0 : 1;
+                const typeB = b.type === 'off' ? 0 : 1;
+                return typeA - typeB;
+            }
+            return a.time - b.time;
+        });
+
+    } catch (e) {
+        console.error("Failed to parse MIDI with library:", e);
+        throw e;
+    }
 }
 
 // --- EXPORT FUNCTION ---
 export function generateMidiFile(events: AppEvent[]): Blob {
-    // 1. Sort events by time
+    // 1. Create a new MIDI object
+    const midi = new Midi();
+    
+    // 2. Create a track
+    const track = midi.addTrack();
+    
+    // 3. Reconstruct "Notes" from "Events"
+    // Our app stores separate ON and OFF events. 
+    // We need to pair them to creating valid MIDI Note objects.
+    
+    const pendingNotes: Record<string, { startTime: number, velocity: number }> = {};
+    
+    // Ensure chronological order
     const sortedEvents = [...events].sort((a, b) => a.time - b.time);
 
-    // 2. Constants
-    const PPQ = 480; // Ticks per quarter note
-    const BPM = 120; // Assume 120 BPM for generic export (1ms = ~0.96 ticks at 120bpm/480ppq? No, math below)
-    // Formula: ms_per_tick = 60000 / (BPM * PPQ)
-    // 60000 / (120 * 480) = 1.0416 ms per tick.
-    // So ticks = ms / 1.0416
-    const MS_PER_TICK = 60000 / (BPM * PPQ);
-
-    const trackBytes: number[] = [];
-    let lastTime = 0;
-
-    // 3. Convert Events to MIDI Bytes
     sortedEvents.forEach(evt => {
-        // Calculate Delta Time
-        const deltaMs = evt.time - lastTime;
-        const deltaTicks = Math.round(deltaMs / MS_PER_TICK);
-        lastTime = evt.time;
-
-        // Write Delta Time (VLQ)
-        trackBytes.push(...writeVarInt(deltaTicks));
-
-        // Determine MIDI Note
-        let midiNum = NOTE_TO_MIDI[evt.note];
-        if (midiNum === undefined) return;
-        midiNum += evt.transpose;
+        // Calculate effective note (apply transpose)
+        const rawMidi = noteToMidi(evt.note);
+        const finalMidi = rawMidi + evt.transpose;
         // Clamp to 0-127
-        midiNum = Math.max(0, Math.min(127, midiNum));
+        const clampedMidi = Math.max(0, Math.min(127, finalMidi));
+        const finalNoteName = midiToNote(clampedMidi);
+        
+        // Use a unique key for polyphony handling (Note + Transpose)
+        // Actually, just using the calculated MIDI number is safer for the map key
+        const key = finalMidi;
 
-        // Status Byte
-        const channel = 0;
         if (evt.type === 'on') {
-            // Note On: 0x90
-            trackBytes.push(0x90 | channel);
-            trackBytes.push(midiNum);
-            trackBytes.push(evt.velocity || 80); // Default velocity
-        } else {
-            // Note Off: 0x80 (or Note On vel 0)
-            trackBytes.push(0x80 | channel);
-            trackBytes.push(midiNum);
-            trackBytes.push(0);
+            // Store start time (in Seconds)
+            pendingNotes[key] = {
+                startTime: evt.time / 1000,
+                velocity: (evt.velocity || 80) / 127
+            };
+        } else if (evt.type === 'off') {
+            const pending = pendingNotes[key];
+            if (pending) {
+                const endTime = evt.time / 1000;
+                let duration = endTime - pending.startTime;
+                
+                // Prevent zero or negative duration bugs
+                if (duration <= 0) duration = 0.05;
+
+                try {
+                    track.addNote({
+                        midi: clampedMidi,
+                        time: pending.startTime,
+                        duration: duration,
+                        velocity: pending.velocity
+                    });
+                } catch (e) {
+                    console.warn("Skipping invalid note export", e);
+                }
+
+                // Remove from pending
+                delete pendingNotes[key];
+            }
         }
     });
 
-    // End of Track Meta Event: FF 2F 00
-    trackBytes.push(0x00, 0xFF, 0x2F, 0x00);
-
-    // 4. Construct Full File
-    // Header Chunk
-    const header = [
-        0x4D, 0x54, 0x68, 0x64, // "MThd"
-        0x00, 0x00, 0x00, 0x06, // Chunk size (6)
-        0x00, 0x00,             // Format 0 (single track)
-        0x00, 0x01,             // 1 Track
-        (PPQ >> 8) & 0xFF, PPQ & 0xFF // PPQ
-    ];
-
-    // Track Chunk Header
-    const trackHeader = [
-        0x4D, 0x54, 0x72, 0x6B, // "MTrk"
-        (trackBytes.length >> 24) & 0xFF,
-        (trackBytes.length >> 16) & 0xFF,
-        (trackBytes.length >> 8) & 0xFF,
-        trackBytes.length & 0xFF
-    ];
-
-    const fileBytes = new Uint8Array([...header, ...trackHeader, ...trackBytes]);
-    return new Blob([fileBytes], { type: 'audio/midi' });
-}
-
-
-// --- IMPORT FUNCTION ---
-export function parseMidiFile(buffer: ArrayBuffer): AppEvent[] {
-    const view = new DataView(buffer);
-    let cursor = 0;
-
-    // 1. Read Header
-    const headerId = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
-    if (headerId !== 'MThd') throw new Error('Invalid MIDI header');
-    
-    cursor += 8; // Skip ID and length
-    const format = view.getUint16(cursor); cursor += 2;
-    const numTracks = view.getUint16(cursor); cursor += 2;
-    const timeDivision = view.getUint16(cursor); cursor += 2;
-
-    let ppq = 480;
-    if (!(timeDivision & 0x8000)) {
-        ppq = timeDivision;
-    }
-
-    // Default Tempo (120 BPM) -> Microseconds per quarter note = 500,000
-    let usPerBeat = 500000; 
-
-    const events: AppEvent[] = [];
-
-    // 2. Read Tracks
-    for (let t = 0; t < numTracks; t++) {
-        const trackId = String.fromCharCode(view.getUint8(cursor), view.getUint8(cursor+1), view.getUint8(cursor+2), view.getUint8(cursor+3));
-        cursor += 4;
-        const trackLen = view.getUint32(cursor);
-        cursor += 4;
-        
-        const endOfTrack = cursor + trackLen;
-        let currentTimeTicks = 0;
-        let currentTimeMs = 0;
-        
-        // Running Status
-        let lastStatus = 0;
-
-        while (cursor < endOfTrack) {
-            // Read Delta Time
-            const { value: deltaTicks, length: deltaLen } = readVarInt(view, cursor);
-            cursor += deltaLen;
-            
-            currentTimeTicks += deltaTicks;
-            
-            // Convert Ticks to MS
-            // ms = (ticks * usPerBeat) / (PPQ * 1000)
-            const deltaMs = (deltaTicks * usPerBeat) / (ppq * 1000);
-            currentTimeMs += deltaMs;
-
-            // Read Event
-            let status = view.getUint8(cursor);
-            
-            if (status & 0x80) {
-                lastStatus = status;
-                cursor++;
-            } else {
-                status = lastStatus;
-            }
-
-            const eventType = status >> 4;
-            // const channel = status & 0x0F;
-
-            if (eventType === 0x8) { // Note Off
-                const note = view.getUint8(cursor++);
-                const velocity = view.getUint8(cursor++);
-                events.push({
-                    time: currentTimeMs,
-                    type: 'off',
-                    note: MIDI_TO_NOTE[note] || 'C4',
-                    transpose: 0,
-                    instrumentId: 'salamander', // Default
-                    velocity: velocity
-                });
-            } else if (eventType === 0x9) { // Note On
-                const note = view.getUint8(cursor++);
-                const velocity = view.getUint8(cursor++);
-                
-                if (velocity === 0) { // Note On with Vel 0 is Note Off
-                    events.push({
-                        time: currentTimeMs,
-                        type: 'off',
-                        note: MIDI_TO_NOTE[note] || 'C4',
-                        transpose: 0,
-                        instrumentId: 'salamander',
-                        velocity: 0
-                    });
-                } else {
-                    events.push({
-                        time: currentTimeMs,
-                        type: 'on',
-                        note: MIDI_TO_NOTE[note] || 'C4',
-                        transpose: 0,
-                        instrumentId: 'salamander',
-                        velocity: velocity
-                    });
-                }
-            } else if (eventType === 0xF) { // Meta / Sysex
-                if (status === 0xFF) { // Meta
-                    const type = view.getUint8(cursor++);
-                    const { value: len, length: lenBytes } = readVarInt(view, cursor);
-                    cursor += lenBytes;
-                    
-                    if (type === 0x51) { // Set Tempo
-                        const micros = (view.getUint8(cursor) << 16) | (view.getUint8(cursor+1) << 8) | view.getUint8(cursor+2);
-                        usPerBeat = micros;
-                    }
-                    cursor += len;
-                } else {
-                    // Skip Sysex or other F events
-                    // This is a naive skipper, standard MIDI is complex
-                    // For simplified files, this usually works.
-                    cursor++; 
-                }
-            } else {
-                // Control Change, Program Change, Pitch Bend etc.
-                // We just skip the data bytes.
-                if (eventType === 0xC || eventType === 0xD) {
-                    cursor++; // 1 data byte
-                } else {
-                    cursor += 2; // 2 data bytes
-                }
-            }
-        }
-    }
-    
-    // Sort imported events by time (merging tracks)
-    return events.sort((a, b) => a.time - b.time);
+    // 4. Export to Uint8Array and then Blob
+    const array = midi.toArray();
+    // Casting array to any to bypass the specific TypeScript definition mismatch
+    // between Uint8Array<ArrayBufferLike> and BlobPart (which expects ArrayBuffer).
+    return new Blob([array as any], { type: 'audio/midi' });
 }

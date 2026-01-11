@@ -1,4 +1,13 @@
 
+import { NOTE_NAMES } from '../constants';
+
+// Extend Window interface for Webkit Audio Context support
+declare global {
+    interface Window {
+        webkitAudioContext: typeof AudioContext;
+    }
+}
+
 // Audio Engine - Sampler Based
 
 // Instrument Definitions
@@ -23,7 +32,6 @@ export const METRONOME_SOUNDS: {id: MetronomeSound, label: string}[] = [
 ];
 
 // Source 1: Salamander Grand Piano (Yamaha C5) - Hosted by Tone.js
-// High quality samples, mapped every minor third.
 const SALAMANDER_BASE = 'https://tonejs.github.io/audio/salamander/';
 const SALAMANDER_MAP: Record<string, string> = {
     'A0': 'A0.mp3', 'C1': 'C1.mp3', 'D#1': 'Ds1.mp3', 'F#1': 'Fs1.mp3', 'A1': 'A1.mp3',
@@ -53,9 +61,6 @@ const HQ_PIANO_MAP: Record<string, string> = {
 // Source 3: General MIDI (gleitz/midi-js-soundfonts - Musyng Kite)
 const GM_BASE = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/';
 
-// MIDI Note Helper
-const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-
 export type SustainLevel = 'OFF' | 'SHORT' | 'LONG';
 
 class AudioEngine {
@@ -82,11 +87,9 @@ class AudioEngine {
     public async init(instrumentId: InstrumentID = 'salamander') {
         // 1. Initialize Audio Context synchronously to capture user gesture
         if (!this.ctx) {
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
             this.ctx = new AudioContextClass();
             
-            // Audio Graph: Sources -> MasterGain -> Compressor -> Destination
-            // Compressor helps boost volume without clipping
             this.compressor = this.ctx.createDynamicsCompressor();
             this.compressor.threshold.value = -10;
             this.compressor.knee.value = 30;
@@ -100,27 +103,22 @@ class AudioEngine {
             this.masterGain.connect(this.compressor);
         }
 
-        // 2. iOS FIX: Unlock AudioContext *immediately* before any async operations.
-        // Playing a silent buffer inside the click event handler ensures the context wakes up.
         this.unlockAudio();
 
-        // 3. Load Instrument Samples (Async)
-        // Only load if instrument changed or not loaded yet
         if (this.currentInstrument !== instrumentId || !this.isLoaded) {
             await this.loadInstrument(instrumentId);
         }
     }
+    
+    public get currentTime() {
+        return this.ctx?.currentTime || 0;
+    }
 
-    // Helper to unlock iOS audio context
     private unlockAudio() {
         if (!this.ctx) return;
-
-        // Resume if suspended
         if (this.ctx.state === 'suspended') {
             this.ctx.resume().catch(e => console.error("Audio resume failed", e));
         }
-
-        // Play a silent buffer - this forces iOS audio stack to wake up
         try {
             const buffer = this.ctx.createBuffer(1, 1, 22050);
             const source = this.ctx.createBufferSource();
@@ -132,8 +130,6 @@ class AudioEngine {
         }
     }
 
-    // Helper for mobile: Browsers suspend context if no interaction.
-    // We call this on every note trigger to be safe.
     public async resumeIfSuspended() {
         if (this.ctx && this.ctx.state === 'suspended') {
             try {
@@ -158,7 +154,6 @@ class AudioEngine {
         this.bpm = bpm;
         this.isMetronomePlaying = true;
         if (this.ctx) {
-            // Start slightly in the future to avoid immediate overlap jitter
             this.nextNoteTime = this.ctx.currentTime + 0.05;
             this.scheduler();
         }
@@ -210,7 +205,6 @@ class AudioEngine {
             osc.start(time);
             osc.stop(time + 0.08);
         } else if (this.metronomeSound === 'click') {
-            // Create buffer for white noise
             const bufferSize = this.ctx.sampleRate * 0.05; // 50ms
             const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
             const data = buffer.getChannelData(0);
@@ -221,7 +215,6 @@ class AudioEngine {
             const noise = this.ctx.createBufferSource();
             noise.buffer = buffer;
             
-            // Filter to make it less harsh (Highpass)
             const filter = this.ctx.createBiquadFilter();
             filter.type = "highpass";
             filter.frequency.value = 1000;
@@ -235,7 +228,6 @@ class AudioEngine {
             noise.start(time);
         }
     }
-    // -----------------------
 
     private async loadInstrument(instrumentId: InstrumentID) {
         this.isLoaded = false;
@@ -295,11 +287,8 @@ class AudioEngine {
     }
 
     public setVolume(val: number) {
-        // Boost factor: input 1.0 -> 2.0 actual gain, input 2.0 -> 4.0 actual gain
-        // The compressor will handle the peaks.
         this.volume = val * 2.0; 
         if (this.masterGain && this.ctx) {
-            // Use exponential ramp for smooth volume changes
             this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
             this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, this.ctx.currentTime);
             this.masterGain.gain.linearRampToValueAtTime(this.volume, this.ctx.currentTime + 0.1);
@@ -344,20 +333,16 @@ class AudioEngine {
         return null;
     }
 
-    /**
-     * Play a note.
-     * @param note Note name (e.g. C4)
-     * @param transpose Semitone shift
-     * @param velocity (Optional) MIDI velocity 0-127. Defaults to 100 (~0.8 gain).
-     */
-    public playNote(note: string, transpose: number = 0, velocity: number = 100) {
+    public playNote(note: string, transpose: number = 0, velocity: number = 100, when: number = 0) {
         if (!this.ctx || !this.isLoaded || !this.masterGain) return;
         
-        // Mobile Fix: Always try to resume context on user interaction
-        this.resumeIfSuspended();
+        if (when === 0) this.resumeIfSuspended();
 
         const mapKey = `${note}_${transpose}`;
-        this.stopNote(note, transpose); 
+        
+        if (when === 0) {
+            this.stopNote(note, transpose); 
+        }
 
         const baseMidi = this.getNoteNumber(note);
         if (baseMidi === 0) return;
@@ -372,9 +357,6 @@ class AudioEngine {
         source.playbackRate.value = Math.pow(2, match.distance / 12);
 
         const gain = this.ctx.createGain();
-        
-        // Velocity Curve: Map 0-127 to 0.0-1.0. 
-        // Using a squared curve gives a more natural dynamic feel.
         const normalizedVel = Math.max(0, Math.min(127, velocity)) / 127;
         const gainValue = normalizedVel * normalizedVel; 
         
@@ -382,18 +364,20 @@ class AudioEngine {
 
         source.connect(gain);
         gain.connect(this.masterGain);
-        source.start(0);
+        
+        const startTime = when || this.ctx.currentTime;
+        source.start(startTime);
 
         this.activeSources.set(mapKey, { source, gain });
     }
 
-    public stopNote(note: string, transpose: number = 0) {
+    public stopNote(note: string, transpose: number = 0, when: number = 0) {
         const mapKey = `${note}_${transpose}`;
         const active = this.activeSources.get(mapKey);
         
         if (active && this.ctx) {
             const { source, gain } = active;
-            const t = this.ctx.currentTime;
+            const t = when || this.ctx.currentTime;
             
             let release = 0.2;
             if (this.sustainLevel === 'LONG') release = 2.0;
@@ -413,7 +397,7 @@ class AudioEngine {
             setTimeout(() => {
                 source.disconnect();
                 gain.disconnect();
-            }, release * 1000 + 100);
+            }, (when ? (when - this.ctx.currentTime) : 0) * 1000 + release * 1000 + 100);
 
             this.activeSources.delete(mapKey);
         }

@@ -1,58 +1,133 @@
-import { KeyMap, KeyDef } from './types';
 
-// Keyboard Note Mapping (Unchanged)
-export const KEY_TO_NOTE: KeyMap = {
-  // --- Row 1 (Numbers) ---
+import { KeyDef } from './types';
+
+// --- SHARED CONSTANTS ---
+export const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+// --- HELPERS ---
+export const getTransposedNote = (note: string, semitones: number): string => {
+  const match = note.match(/([A-G][#b]?)(-?\d+)/);
+  if (!match) return note;
+  let [_, name, octStr] = match;
+  let octave = parseInt(octStr);
+  
+  // Normalize flats to sharps for consistent lookup
+  const flatMap: Record<string, string> = {'Db':'C#', 'Eb':'D#', 'Gb':'F#', 'Ab':'G#', 'Bb':'A#'};
+  if (flatMap[name]) name = flatMap[name];
+  
+  let index = NOTE_NAMES.indexOf(name);
+  if (index === -1) return note;
+  
+  let totalIndex = index + (octave * 12) + semitones;
+  const newOctave = Math.floor(totalIndex / 12);
+  const newIndex = ((totalIndex % 12) + 12) % 12; 
+  return `${NOTE_NAMES[newIndex]}${newOctave}`;
+};
+
+export const getRootKeyName = (transpose: number): string => {
+  let idx = transpose % 12;
+  if (idx < 0) idx += 12;
+  return `${NOTE_NAMES[idx]}(${Math.floor(transpose / 12)})`;
+};
+
+// --- KEYMAP DEFINITIONS ---
+
+// 1. FreePiano Default (Optimized for performance playing)
+const MAP_FREEPIANO: Record<string, string> = {
+  // Row 1 (Numbers)
   'Backquote': 'B4', 'Digit1': 'C5', 'Digit2': 'D5', 'Digit3': 'E5', 'Digit4': 'F5', 'Digit5': 'G5',
   'Digit6': 'A5', 'Digit7': 'B5', 'Digit8': 'C6', 'Digit9': 'D6', 'Digit0': 'E6', 'Minus': 'F6',
   'Equal': 'G6', 'Backspace': 'A6',
-  // --- Row 2 (Tab/QWERTY) ---
+  // Row 2 (Tab/QWERTY)
   'Tab': 'B3', 'KeyQ': 'C4', 'KeyW': 'D4', 'KeyE': 'E4', 'KeyR': 'F4', 'KeyT': 'G4', 'KeyY': 'A4',
   'KeyU': 'B4', 'KeyI': 'C5', 'KeyO': 'D5', 'KeyP': 'E5', 'BracketLeft': 'F5', 'BracketRight': 'G5',
   'Backslash': 'A5',
-  // --- Row 3 (Caps/ASDF) ---
+  // Row 3 (Caps/ASDF)
   'CapsLock': 'B2', 'KeyA': 'C3', 'KeyS': 'D3', 'KeyD': 'E3', 'KeyF': 'F3', 'KeyG': 'G3', 'KeyH': 'A3',
   'KeyJ': 'B3', 'KeyK': 'C4', 'KeyL': 'D4', 'Semicolon': 'E4', 'Quote': 'F4', 'Enter': 'G4',
-  // --- Row 4 (Shift/ZXCV) ---
+  // Row 4 (Shift/ZXCV)
   'KeyZ': 'C2', 'KeyX': 'D2', 'KeyC': 'E2', 'KeyV': 'F2', 'KeyB': 'G2', 'KeyN': 'A2', 'KeyM': 'B2',
   'Comma': 'C3', 'Period': 'D3', 'Slash': 'E3', 'ShiftRight': 'F3',
-  // --- Numpad ---
+  // Numpad (Right Hand / Accompaniment)
   'NumLock': 'F5', 'NumpadDivide': 'G5', 'NumpadMultiply': 'A5', 'NumpadSubtract': 'B5',
   'Numpad7': 'B4', 'Numpad8': 'C5', 'Numpad9': 'D5', 'NumpadAdd': 'E5',
   'Numpad4': 'F4', 'Numpad5': 'G4', 'Numpad6': 'A4',
   'Numpad1': 'C4', 'Numpad2': 'D4', 'Numpad3': 'E4', 'NumpadEnter': 'B3',
   'Numpad0': 'G3', 'NumpadDecimal': 'A3',
-  // --- Navigation ---
+  // Navigation
   'Insert': 'F6', 'Home': 'G6', 'PageUp': 'A6',
   'Delete': 'C6', 'End': 'D6', 'PageDown': 'E6',
   'ArrowUp': 'F3', 'ArrowLeft': 'C3', 'ArrowDown': 'D3', 'ArrowRight': 'E3',
 };
 
-// FULL KEYBOARD ROW DEFINITIONS
-// We use a single grid system. 
-// Main Block ends at ~15u. Gap 0.5u. Nav Block 3u. Gap 0.5u. Num Block 4u. Total ~23u.
-// To handle the Numpad Enter/Plus height, we use grid-row-span in the component.
+// 2. FlashPiano (Standard Linear)
+const MAP_FLASHPIANO: Record<string, string> = {
+  // Lower Octave (Z Row)
+  'KeyZ': 'C3', 'KeyS': 'C#3', 'KeyX': 'D3', 'KeyD': 'D#3', 'KeyC': 'E3', 'KeyV': 'F3', 'KeyG': 'F#3', 
+  'KeyB': 'G3', 'KeyH': 'G#3', 'KeyN': 'A3', 'KeyJ': 'A#3', 'KeyM': 'B3',
+  'Comma': 'C4', 'KeyL': 'C#4', 'Period': 'D4', 'Semicolon': 'D#4', 'Slash': 'E4',
+  // Middle Octave (Q Row)
+  'KeyQ': 'C4', 'Digit2': 'C#4', 'KeyW': 'D4', 'Digit3': 'D#4', 'KeyE': 'E4', 'KeyR': 'F4', 'Digit5': 'F#4',
+  'KeyT': 'G4', 'Digit6': 'G#4', 'KeyY': 'A4', 'Digit7': 'A#4', 'KeyU': 'B4',
+  'KeyI': 'C5', 'Digit9': 'C#5', 'KeyO': 'D5', 'Digit0': 'D#5', 'KeyP': 'E5', 'BracketLeft': 'F5', 'Equal': 'F#5', 
+  'BracketRight': 'G5',
+  // Numpad (Standard Map)
+  'Numpad1': 'C3', 'Numpad2': 'D3', 'Numpad3': 'E3', 'Numpad4': 'F3', 'Numpad5': 'G3', 'Numpad6': 'A3', 
+  'Numpad7': 'B3', 'Numpad8': 'C4', 'Numpad9': 'D4', 'Numpad0': 'C2'
+};
 
+// 3. iDreamPiano (Standard Full Keyboard)
+const MAP_IDREAMPIANO: Record<string, string> = {
+  // Low (Zxcv)
+  'KeyZ': 'A2', 'KeyS': 'A#2', 'KeyX': 'B2', 'KeyC': 'C3', 'KeyF': 'C#3', 'KeyV': 'D3', 'KeyG': 'D#3', 
+  'KeyB': 'E3', 'KeyN': 'F3', 'KeyJ': 'F#3', 'KeyM': 'G3', 'KeyK': 'G#3', 'Comma': 'A3', 'KeyL': 'A#3', 'Period': 'B3', 'Slash': 'C4',
+  // High (Qwerty)
+  'KeyQ': 'C4', 'Digit2': 'C#4', 'KeyW': 'D4', 'Digit3': 'D#4', 'KeyE': 'E4', 'KeyR': 'F4', 'Digit5': 'F#4',
+  'KeyT': 'G4', 'Digit6': 'G#4', 'KeyY': 'A4', 'Digit7': 'A#4', 'KeyU': 'B4', 'KeyI': 'C5', 'Digit9': 'C#5', 
+  'KeyO': 'D5', 'Digit0': 'D#5', 'KeyP': 'E5', 'BracketLeft': 'F5', 'Equal': 'F#5', 'BracketRight': 'G5'
+};
+
+export const KEYMAP_PRESETS = {
+  freepiano: { name: 'FreePiano (Default)', map: MAP_FREEPIANO },
+  flashpiano: { name: 'FlashPiano', map: MAP_FLASHPIANO },
+  idreampiano: { name: 'iDreamPiano', map: MAP_IDREAMPIANO },
+};
+
+export type KeymapID = keyof typeof KEYMAP_PRESETS;
+
+// Keys that are NOT affected by Shift/Ctrl transposition (Left Hand Modifiers).
+export const IMMUNE_TO_MODIFIERS = new Set([
+  'NumLock', 'NumpadDivide', 'NumpadMultiply', 'NumpadSubtract',
+  'Numpad7', 'Numpad8', 'Numpad9', 'NumpadAdd',
+  'Numpad4', 'Numpad5', 'Numpad6',
+  'Numpad1', 'Numpad2', 'Numpad3', 'NumpadEnter',
+  'Numpad0', 'NumpadDecimal',
+  'Insert', 'Home', 'PageUp', 'Delete', 'End', 'PageDown',
+  'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'
+]);
+
+export const KEY_TO_NOTE = MAP_FREEPIANO; 
+
+// FULL KEYBOARD ROW DEFINITIONS (Layout Visuals)
 export const FULL_ROW_0: KeyDef[] = [
   { code: 'Escape', label: 'Esc', customLabel: 'SU' }, 
-  { code: 'dummy_0_1', label: '', width: 1, isDummy: true }, // Gap 1u
+  { code: 'dummy_0_1', label: '', width: 1, isDummy: true },
   { code: 'F1', label: 'F1' }, { code: 'F2', label: 'F2' }, { code: 'F3', label: 'F3', customLabel: 'KS-' }, { code: 'F4', label: 'F4', customLabel: 'KS+' },
-  { code: 'dummy_0_2', label: '', width: 0.5, isDummy: true }, // Gap 0.5u
+  { code: 'dummy_0_2', label: '', width: 0.5, isDummy: true },
   { code: 'F5', label: 'F5', customLabel: 'OC-' }, { code: 'F6', label: 'F6', customLabel: 'OC+' }, { code: 'F7', label: 'F7', customLabel: 'V-' }, { code: 'F8', label: 'F8', customLabel: 'V+' },
-  { code: 'dummy_0_3', label: '', width: 0.5, isDummy: true }, // Gap 0.5u
+  { code: 'dummy_0_3', label: '', width: 0.5, isDummy: true },
   { code: 'F9', label: 'F9' }, { code: 'F10', label: 'F10' }, { code: 'F11', label: 'F11' }, { code: 'F12', label: 'F12' },
-  { code: 'dummy_0_4', label: '', width: 0.5, isDummy: true }, // Gap 0.5u (Main to Nav)
-  // UPDATED: Control keys mapped to Play/Rec/Stop
+  { code: 'dummy_0_4', label: '', width: 0.5, isDummy: true },
   { code: 'PrintScreen', label: 'Play' }, { code: 'ScrollLock', label: 'Rec' }, { code: 'Pause', label: 'Stop' },
-  { code: 'dummy_0_5', label: '', width: 0.5, isDummy: true }, // Gap 0.5u (Nav to Num)
-  { code: 'Coffee', label: 'Support', customLabel: '☕ Buy me a Coffee', width: 4 }, // Replaces dummy gap
+  { code: 'dummy_0_5', label: '', width: 0.5, isDummy: true },
+  { code: 'Coffee', label: 'Support', customLabel: '☕ Buy me a Coffee', width: 4 }, 
 ];
 
 export const FULL_ROW_1: KeyDef[] = [
   { code: 'Backquote', label: '~' }, { code: 'Digit1', label: '1' }, { code: 'Digit2', label: '2' }, { code: 'Digit3', label: '3' }, { code: 'Digit4', label: '4' }, { code: 'Digit5', label: '5' }, { code: 'Digit6', label: '6' }, { code: 'Digit7', label: '7' }, { code: 'Digit8', label: '8' }, { code: 'Digit9', label: '9' }, { code: 'Digit0', label: '0' }, { code: 'Minus', label: '-' }, { code: 'Equal', label: '=' }, { code: 'Backspace', label: '←', width: 2 },
-  { code: 'dummy_1_1', label: '', width: 0.5, isDummy: true }, // Gap
+  { code: 'dummy_1_1', label: '', width: 0.5, isDummy: true }, 
   { code: 'Insert', label: 'Ins' }, { code: 'Home', label: 'Home' }, { code: 'PageUp', label: 'PgUp' },
-  { code: 'dummy_1_2', label: '', width: 0.5, isDummy: true }, // Gap
+  { code: 'dummy_1_2', label: '', width: 0.5, isDummy: true }, 
   { code: 'NumLock', label: 'Num' }, { code: 'NumpadDivide', label: '/' }, { code: 'NumpadMultiply', label: '*' }, { code: 'NumpadSubtract', label: '-' },
 ];
 
@@ -67,10 +142,9 @@ export const FULL_ROW_2: KeyDef[] = [
 export const FULL_ROW_3: KeyDef[] = [
   { code: 'CapsLock', label: 'Caps', width: 1.75 }, { code: 'KeyA', label: 'A' }, { code: 'KeyS', label: 'S' }, { code: 'KeyD', label: 'D' }, { code: 'KeyF', label: 'F' }, { code: 'KeyG', label: 'G' }, { code: 'KeyH', label: 'H' }, { code: 'KeyJ', label: 'J' }, { code: 'KeyK', label: 'K' }, { code: 'KeyL', label: 'L' }, { code: 'Semicolon', label: ';' }, { code: 'Quote', label: "'" }, { code: 'Enter', label: 'Enter', width: 2.25 },
   { code: 'dummy_3_1', label: '', width: 0.5, isDummy: true },
-  { code: 'dummy_3_2', label: '', width: 3, isDummy: true }, // Nav middle gap
+  { code: 'dummy_3_2', label: '', width: 3, isDummy: true }, 
   { code: 'dummy_3_3', label: '', width: 0.5, isDummy: true },
   { code: 'Numpad4', label: '4' }, { code: 'Numpad5', label: '5' }, { code: 'Numpad6', label: '6' }, 
-  // NumpadAdd spans from above, so we don't render anything in 4th col
 ];
 
 export const FULL_ROW_4: KeyDef[] = [
@@ -87,7 +161,6 @@ export const FULL_ROW_5: KeyDef[] = [
   { code: 'ArrowLeft', label: '←' }, { code: 'ArrowDown', label: '↓' }, { code: 'ArrowRight', label: '→' },
   { code: 'dummy_5_2', label: '', width: 0.5, isDummy: true },
   { code: 'Numpad0', label: '0', width: 2 }, { code: 'NumpadDecimal', label: '.' },
-  // NumpadEnter spans from above
 ];
 
 export const ALL_ROWS = [FULL_ROW_0, FULL_ROW_1, FULL_ROW_2, FULL_ROW_3, FULL_ROW_4, FULL_ROW_5];
