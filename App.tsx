@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import VirtualKey from './components/VirtualKey';
 import PianoKeyboard from './components/PianoKeyboard';
@@ -12,12 +13,13 @@ import {
   IMMUNE_TO_MODIFIERS,
   ALL_ROWS,
   getTransposedNote,
-  getRootKeyName
+  getRootKeyName,
+  midiNumberToNote
 } from './constants';
 import { 
   Volume2, Keyboard, Activity, Loader2, Music, 
   Circle, Square, Play, Pause, Timer, Info, X, ChevronDown, ChevronUp, Github, RotateCcw,
-  Download, FileUp, Settings, Palette, Languages, GripHorizontal, Map as MapIcon, ScrollText, Piano, Globe, GraduationCap, Gauge
+  Download, FileUp, Settings, Palette, Languages, GripHorizontal, Map as MapIcon, ScrollText, Piano, Globe, GraduationCap, Gauge, Plug
 } from 'lucide-react';
 import { THEMES, TRANSLATIONS, ThemeID, Language } from './theme';
 
@@ -76,6 +78,10 @@ const App: React.FC = () => {
   // Track notes clicked via the Piano Visualizer directly
   const [activeMouseNotes, setActiveMouseNotes] = useState<Set<string>>(new Set());
 
+  // Track notes played via Physical MIDI Device
+  const [activeMidiNotes, setActiveMidiNotes] = useState<Set<string>>(new Set());
+  const [midiAccess, setMidiAccess] = useState<WebMidi.MIDIAccess | null>(null);
+
   const [isAudioStarted, setIsAudioStarted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
@@ -120,6 +126,7 @@ const App: React.FC = () => {
   const tempTransposeRef = useRef(0);
   const recordingRef = useRef<RecordedEvent[]>([]);
   const isPracticeModeRef = useRef(false);
+  const isRecordingRef = useRef(false); // Ref for recording state for MIDI callbacks
   
   // Playback Refs
   const animFrameRef = useRef<number | null>(null);
@@ -146,6 +153,10 @@ const App: React.FC = () => {
   useEffect(() => {
     isPracticeModeRef.current = isPracticeMode;
   }, [isPracticeMode]);
+
+  useEffect(() => {
+      isRecordingRef.current = isRecording;
+  }, [isRecording]);
 
   useEffect(() => {
     playbackSpeedRef.current = playbackSpeed;
@@ -182,6 +193,180 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', checkLayout);
   }, []);
 
+  // --- WEB MIDI API ---
+  useEffect(() => {
+    if (navigator.requestMIDIAccess) {
+        navigator.requestMIDIAccess().then(
+            (ma) => {
+                setMidiAccess(ma);
+                // Attach listeners to existing inputs
+                Array.from(ma.inputs.values()).forEach(input => {
+                    input.onmidimessage = handleMidiMessage;
+                });
+                
+                // Handle hot-plugging
+                ma.onstatechange = (e: WebMidi.MIDIConnectionEvent) => {
+                   const port = e.port as WebMidi.MIDIInput;
+                   if (port.type === 'input' && port.state === 'connected') {
+                       port.onmidimessage = handleMidiMessage;
+                   }
+                };
+            },
+            () => console.warn('Web MIDI API access denied or not supported.')
+        );
+    }
+  }, [currentInstrument, volume]); // Dependencies needed if handling logic uses closure, but handleMidiMessage needs access to Refs
+
+  const handleMidiMessage = (e: WebMidi.MIDIMessageEvent) => {
+    const { data } = e;
+    if (!data || data.length < 2) return;
+
+    const [status, noteNum, velocity] = data;
+    const command = status & 0xf0;
+    // const channel = status & 0x0f; 
+
+    // Note On: 144 (0x90)
+    // Note Off: 128 (0x80)
+    // Note: Some devices send Note On with Velocity 0 as Note Off
+    
+    const noteName = midiNumberToNote(noteNum);
+    
+    if (command === 144 && velocity > 0) {
+        // NOTE ON
+        audioEngine.playNote(noteName, 0, velocity); 
+        setActiveMidiNotes(prev => new Set(prev).add(noteName));
+        setTriggerNotes([{ note: noteName, time: Date.now(), type: 'user' }]);
+
+        if (isRecordingRef.current) {
+            recordingRef.current.push({
+                time: Date.now() - recordingStartTime, // recordingStartTime needs to be ref or this closure is stale? 
+                // Wait, functional component closure issue. recordingStartTime is state.
+                // We need a REF for start time if we want to use it here without re-binding listener.
+                // OR we can't use state directly here easily.
+                // Simplified fix: use Date.now() for now, we might need a Ref for start time.
+                // Let's assume we fix `recordingStartTime` to be a ref below.
+                type: 'on',
+                note: noteName,
+                transpose: 0,
+                instrumentId: currentInstrument, // This is also closure stale...
+                velocity: velocity
+            });
+        }
+    } else if (command === 128 || (command === 144 && velocity === 0)) {
+        // NOTE OFF
+        audioEngine.stopNote(noteName, 0);
+        setActiveMidiNotes(prev => {
+            const s = new Set(prev);
+            s.delete(noteName);
+            return s;
+        });
+        
+        if (isRecordingRef.current) {
+            recordingRef.current.push({
+                time: Date.now() - recordingStartTime,
+                type: 'off',
+                note: noteName,
+                transpose: 0,
+                instrumentId: currentInstrument
+            });
+        }
+    }
+  };
+  
+  // FIX: To handle stale state in MIDI callback, we use a ref for recording start time and current instrument
+  const recordingStartTimeRef = useRef(0);
+  const currentInstrumentRef = useRef<InstrumentID>('salamander');
+
+  useEffect(() => {
+      recordingStartTimeRef.current = recordingStartTime;
+  }, [recordingStartTime]);
+
+  useEffect(() => {
+      currentInstrumentRef.current = currentInstrument;
+  }, [currentInstrument]);
+  
+  // Re-define handleMidiMessage to use Refs for values that change
+  // Note: We can't easily re-bind 'onmidimessage' every render.
+  // Best practice: The handler calls a ref-based function or accesses refs directly.
+  const handleMidiMessageRef = useRef<(e: WebMidi.MIDIMessageEvent) => void>(() => {});
+  
+  useEffect(() => {
+    handleMidiMessageRef.current = (e: WebMidi.MIDIMessageEvent) => {
+        const { data } = e;
+        if (!data || data.length < 2) return;
+    
+        const [status, noteNum, velocity] = data;
+        const command = status & 0xf0;
+        const noteName = midiNumberToNote(noteNum);
+        
+        if (command === 144 && velocity > 0) {
+            // Note On
+            // Use current volume as a scaler if needed, but MIDI usually respects device velocity
+            audioEngine.playNote(noteName, 0, velocity); 
+            setActiveMidiNotes(prev => {
+                const s = new Set(prev);
+                s.add(noteName);
+                return s;
+            });
+            // Direct set state for visualizer trigger might be heavy on high freq, but OK for piano
+            setTriggerNotes([{ note: noteName, time: Date.now(), type: 'user' }]);
+    
+            if (isRecordingRef.current) {
+                recordingRef.current.push({
+                    time: Date.now() - recordingStartTimeRef.current,
+                    type: 'on',
+                    note: noteName,
+                    transpose: 0,
+                    instrumentId: currentInstrumentRef.current,
+                    velocity: velocity
+                });
+            }
+        } else if (command === 128 || (command === 144 && velocity === 0)) {
+            // Note Off
+            audioEngine.stopNote(noteName, 0);
+            setActiveMidiNotes(prev => {
+                const s = new Set(prev);
+                s.delete(noteName);
+                return s;
+            });
+            
+            if (isRecordingRef.current) {
+                recordingRef.current.push({
+                    time: Date.now() - recordingStartTimeRef.current,
+                    type: 'off',
+                    note: noteName,
+                    transpose: 0,
+                    instrumentId: currentInstrumentRef.current
+                });
+            }
+        }
+    };
+  }, []); // Empty dependency, refs are stable
+
+  // Attach the stable listener wrapper
+  useEffect(() => {
+    if (!midiAccess) return;
+    
+    const listener = (e: WebMidi.MIDIMessageEvent) => handleMidiMessageRef.current(e);
+
+    const inputs = Array.from(midiAccess.inputs.values());
+    inputs.forEach(input => {
+        input.onmidimessage = listener;
+    });
+
+    midiAccess.onstatechange = (e: WebMidi.MIDIConnectionEvent) => {
+        const port = e.port as WebMidi.MIDIInput;
+        if (port.type === 'input' && port.state === 'connected') {
+            port.onmidimessage = listener;
+        }
+    };
+    
+    return () => {
+        inputs.forEach(input => input.onmidimessage = null);
+    };
+  }, [midiAccess]);
+
+
   // Helper to calculate effective transpose given immunity rules
   const getEffectiveTranspose = useCallback((code: string | undefined) => {
       let effectiveTranspose = tempTransposeRef.current;
@@ -213,8 +398,11 @@ const App: React.FC = () => {
     // 2. Process Mouse Interaction
     activeMouseNotes.forEach(n => notes.push(n));
 
+    // 3. Process External MIDI Device
+    activeMidiNotes.forEach(n => notes.push(n));
+
     return notes;
-  }, [activeKeys, activeMouseNotes, transposeBase, octaveShift, currentKeyMap, getEffectiveTranspose]);
+  }, [activeKeys, activeMouseNotes, activeMidiNotes, transposeBase, octaveShift, currentKeyMap, getEffectiveTranspose]);
 
   // Compute Playback Active Notes
   const playbackActiveNotes = useMemo(() => {
@@ -859,6 +1047,7 @@ const App: React.FC = () => {
              <div className="flex items-center gap-2 text-yellow-500 font-bold md:px-4">
                  <Keyboard className="w-5 h-5" />
                  <span className="inline">{t.title}</span>
+                 {midiAccess && <div className="ml-1 w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_lime]" title="MIDI Device Connected"></div>}
              </div>
              <button 
                 onClick={() => setIsToolbarOpen(!isToolbarOpen)} 

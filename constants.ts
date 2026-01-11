@@ -1,4 +1,5 @@
 
+
 import { KeyDef } from './types';
 
 // --- SHARED CONSTANTS ---
@@ -28,6 +29,13 @@ export const getRootKeyName = (transpose: number): string => {
   let idx = transpose % 12;
   if (idx < 0) idx += 12;
   return `${NOTE_NAMES[idx]}(${Math.floor(transpose / 12)})`;
+};
+
+// Convert MIDI number (0-127) to Note Name (e.g. 60 -> C4)
+export const midiNumberToNote = (midi: number): string => {
+    const name = NOTE_NAMES[midi % 12];
+    const octave = Math.floor(midi / 12) - 1;
+    return `${name}${octave}`;
 };
 
 // --- KEYMAP DEFINITIONS ---
