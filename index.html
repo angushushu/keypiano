@@ -1,52 +1,108 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>KeyPiano</title>
-    <!-- We keep the CDN for simplicity, but in a full build you might import CSS directly -->
+    
+    <title>KeyPiano | Online Virtual Piano</title>
+    <meta name="description" content="Play piano online seamlessly with KeyPiano. Connect your MIDI keyboard or use your computer keys. Features instant recording, low latency, and professional sound. No installation required.">
+    <meta name="keywords" content="online piano, virtual piano, MIDI keyboard support, web piano, browser instrument, piano recorder, html5 audio">
+    <meta name="author" content="Angus Shu">
+    
+    <link rel="canonical" href="https://keypiano.app/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://keypiano.app/" />
+    <meta property="og:title" content="KeyPiano - Professional Web MIDI Piano" />
+    <meta property="og:description" content="Turn your browser into a professional piano. Connect MIDI devices, record tracks, and play instantly." />
+    <meta property="og:image" content="https://keypiano.app/og-preview.png" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="KeyPiano - Online MIDI Piano" />
+    <meta name="twitter:description" content="Zero latency online piano. Plug in your MIDI keyboard and start playing." />
+    <meta name="twitter:image" content="https://keypiano.app/og-preview.png" />
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "KeyPiano",
+      "url": "https://keypiano.app",
+      "description": "A browser-based virtual piano with MIDI support.",
+      "applicationCategory": "MusicApplication",
+      "operatingSystem": "Web Browser",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "author": {
+        "@type": "Person",
+        "name": "angushushu"
+      }
+    }
+    </script>
+
     <script src="https://cdn.tailwindcss.com"></script>
     
     <style>
       body {
         background-color: #18181b;
         color: #e4e4e7;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       }
-      /* Custom Scrollbar for better aesthetics */
-      ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-      }
-      ::-webkit-scrollbar-track {
-        background: #27272a; 
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #52525b; 
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #71717a; 
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: #27272a; }
+      ::-webkit-scrollbar-thumb { background: #52525b; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #71717a; }
+
+      /* sr-only (screen reader only) */
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border-width: 0;
       }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-    "vite": "https://esm.sh/vite@^7.3.1",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "@tonejs/midi": "https://esm.sh/@tonejs/midi@^2.0.28"
-  }
-}
-</script>
-</head>
+
+    <script type="importmap">
+    {
+      "imports": {
+        "react/": "https://esm.sh/react@^19.2.3/",
+        "react": "https://esm.sh/react@^19.2.3",
+        "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+        "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+        "vite": "https://esm.sh/vite@^7.3.1",
+        "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+        "@tonejs/midi": "https://esm.sh/@tonejs/midi@^2.0.28"
+      }
+    }
+    </script>
+  </head>
   <body>
+    <h1 class="sr-only">KeyPiano: Free Online Piano</h1>
+    
+    <noscript>
+      <div style="padding: 20px; color: white;">
+        <h1>Welcome to KeyPiano</h1>
+        <p>KeyPiano is a free online virtual piano that allows you to play music using your computer keyboard.</p>
+        <h2>Features:</h2>
+        <ul>
+            <li>Use computer keyboard for piano performance</li>
+            <li>Record and playback your performance</li>
+            <li>Import and export MIDI files</li>
+        </ul>
+        <p>Please enable JavaScript to use the full application.</p>
+      </div>
+    </noscript>
+
     <div id="root"></div>
-    <!-- Vite requires this script tag to know where to start bundling -->
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>
