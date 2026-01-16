@@ -4,10 +4,11 @@ import { Theme } from '../theme';
 
 // --- SVG METRICS ---
 // ViewBox: 18.432 38.912 759.808 172.032
-const VB_X = 18.432;
-const VB_Y = 38.912;
-const VB_W = 759.808;
-const VB_H = 172.032;
+// Adjusted VB_X to -10 to shift content visually to the right
+export const STAVE_VB_X = -10;
+export const STAVE_VB_Y = 38.912;
+export const STAVE_VB_W = 759.808;
+export const STAVE_VB_H = 172.032;
 
 const StaveBackgroundSVG: React.FC<{ theme: Theme }> = React.memo(({ theme }) => {
     const isLight = theme.id === 'light' || theme.id === 'minimalist' || theme.id === 'pastel' || theme.id === 'fauvism';
@@ -17,7 +18,7 @@ const StaveBackgroundSVG: React.FC<{ theme: Theme }> = React.memo(({ theme }) =>
         <svg 
             width="100%" 
             height="100%" 
-            viewBox={`${VB_X} ${VB_Y} ${VB_W} ${VB_H}`} 
+            viewBox={`${STAVE_VB_X} ${STAVE_VB_Y} ${STAVE_VB_W} ${STAVE_VB_H}`} 
             preserveAspectRatio="xMidYMid meet"
             className="absolute inset-0 pointer-events-none"
             style={{ color: inkColor }}

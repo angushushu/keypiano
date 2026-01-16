@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Theme } from '../theme';
-import StaveBackgroundSVG from './StaveBackgroundSVG';
+import StaveBackgroundSVG, { STAVE_VB_X, STAVE_VB_W, STAVE_VB_H, STAVE_VB_Y } from './StaveBackgroundSVG';
 
 export type NoteType = 'user' | 'practice';
 
@@ -19,17 +19,9 @@ interface StaveVisualizerProps {
 
 // --- VISUALIZATION CONSTANTS ---
 const QUANTIZATION_MS = 62.5; 
-const NOTE_SPACING_X = 50; 
-const PADDING_RIGHT = 150;     
-const NOTE_HEAD_RADIUS_X = 6.5;
-const NOTE_HEAD_RADIUS_Y = 4.5;
-
-// --- SVG METRICS (Derived from provided music_sheet.svg) ---
-// ViewBox: 18.432 38.912 759.808 172.032
-const VB_X = 18.432;
-const VB_Y = 38.912;
-const VB_W = 759.808;
-const VB_H = 172.032;
+const NOTE_SPACING_UNIT_X = 45; // Spacing in SVG Units (scales with stave)
+const NOTE_HEAD_RADIUS_X_BASE = 6.5; // Radius in SVG Units
+const NOTE_HEAD_RADIUS_Y_BASE = 4.5; // Radius in SVG Units
 
 // Metric Analysis of the SVG:
 // Treble Bottom Line (E4, Offset +2) Center Y ~= 112.144
@@ -39,6 +31,11 @@ const SVG_BASS_REF_Y = 146.056;
 
 // Half Line Height (Step) calculated from SVG
 const SVG_LINE_HALF_H = 4.358;
+
+// Safety margins in SVG Coordinates relative to ViewBox X
+const SVG_CLEF_GUARD_X = 135; // Notes disappear if they go left of this (Clef/KeySig area)
+// Adjusted to 690 (was 716.389) to ensure notes spawn inside the lines and ledger lines don't overhang
+const SVG_STAVE_END_X = 690;  
 
 // Optimization: Cache results for getDiatonicOffset to avoid regex parsing in render loop
 const offsetCache: Record<string, { offset: number; isSharp: boolean; isFlat: boolean }> = {};
@@ -188,29 +185,48 @@ const StaveVisualizer: React.FC<StaveVisualizerProps> = ({ triggerNotes, theme }
         // Ghost color for practice mode
         const ghostColor = isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.3)';
         
-        // --- COORDINATE MAPPING ---
-        const scale = Math.min(width / VB_W, height / VB_H);
-        const renderH = VB_H * scale;
+        // --- COORDINATE MAPPING (Alignment with SVG) ---
+        // StaveBackgroundSVG uses "xMidYMid meet"
+        const scale = Math.min(width / STAVE_VB_W, height / STAVE_VB_H);
+        const renderW = STAVE_VB_W * scale;
+        const renderH = STAVE_VB_H * scale;
+        
+        // Calculate offsets to center the rendered SVG coordinate system on canvas
+        const offX = (width - renderW) / 2;
         const offY = (height - renderH) / 2;
 
-        const trebleBaseY = offY + (SVG_TREBLE_REF_Y - VB_Y) * scale;
-        const bassBaseY = offY + (SVG_BASS_REF_Y - VB_Y) * scale;
+        const trebleBaseY = offY + (SVG_TREBLE_REF_Y - STAVE_VB_Y) * scale;
+        const bassBaseY = offY + (SVG_BASS_REF_Y - STAVE_VB_Y) * scale;
         const canvasLineH = SVG_LINE_HALF_H * scale;
+        
+        // Boundaries in Canvas Pixels
+        // Notes should spawn at the visual end of the stave lines
+        const staveRightEdge = offX + (SVG_STAVE_END_X - STAVE_VB_X) * scale;
+        // Notes should not be drawn if they cross into the clef/keysig area
+        const clefGuardEdge = offX + (SVG_CLEF_GUARD_X - STAVE_VB_X) * scale;
+
+        const scaledSpacing = NOTE_SPACING_UNIT_X * scale;
+        const radiusX = NOTE_HEAD_RADIUS_X_BASE * scale;
+        const radiusY = NOTE_HEAD_RADIUS_Y_BASE * scale;
 
         // --- Draw Bins ---
-        const maxVisibleItems = Math.ceil(width / NOTE_SPACING_X) + 2;
+        // Calculate visible capacity based on spacing
+        const maxVisibleItems = Math.ceil((staveRightEdge - clefGuardEdge) / scaledSpacing) + 2;
+        
         if (binsRef.current.length > maxVisibleItems) {
             binsRef.current = binsRef.current.slice(binsRef.current.length - maxVisibleItems);
         }
 
         binsRef.current.forEach((bin, idx) => {
             const reverseIdx = (binsRef.current.length - 1) - idx;
-            const targetX = width - PADDING_RIGHT - (reverseIdx * NOTE_SPACING_X);
+            // Anchor to stave right edge instead of window width
+            const targetX = staveRightEdge - (reverseIdx * scaledSpacing);
             bin.x = targetX;
         });
 
         binsRef.current.forEach(bin => {
-            if (bin.x < 80) return; 
+            // Guard: Prevent overlap with Left Clefs
+            if (bin.x < clefGuardEdge) return; 
 
             bin.notes.forEach(noteItem => {
                 const noteStr = noteItem.name;
@@ -242,15 +258,16 @@ const StaveVisualizer: React.FC<StaveVisualizerProps> = ({ triggerNotes, theme }
                 ctx.translate(bin.x, y);
                 ctx.rotate(-0.35); 
                 ctx.beginPath();
-                ctx.ellipse(0, 0, NOTE_HEAD_RADIUS_X, NOTE_HEAD_RADIUS_Y, 0, 0, 2 * Math.PI);
+                ctx.ellipse(0, 0, radiusX, radiusY, 0, 0, 2 * Math.PI);
                 ctx.fill();
                 ctx.restore();
                 
                 // Ledger Lines Logic
                 const drawLedger = (ly: number) => {
                     ctx.beginPath();
-                    ctx.moveTo(bin.x - 12, ly);
-                    ctx.lineTo(bin.x + 12, ly);
+                    const lineExt = 12 * scale; // Scale ledger width
+                    ctx.moveTo(bin.x - lineExt, ly);
+                    ctx.lineTo(bin.x + lineExt, ly);
                     ctx.stroke();
                 };
 
@@ -273,10 +290,11 @@ const StaveVisualizer: React.FC<StaveVisualizerProps> = ({ triggerNotes, theme }
                 
                 // Accidentals
                 if (isSharp || isFlat) {
-                    ctx.font = "20px serif"; 
+                    const fontSize = Math.max(10, 24 * scale);
+                    ctx.font = `${fontSize}px serif`; 
                     const symbol = isSharp ? '♯' : '♭';
-                    const accX = bin.x - 20;
-                    const accY = y + 7;
+                    const accX = bin.x - (24 * scale); // Scale offset
+                    const accY = y + (8 * scale);      // Scale offset
                     ctx.fillText(symbol, accX, accY);
                 }
             });

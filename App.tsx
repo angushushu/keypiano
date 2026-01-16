@@ -1,10 +1,10 @@
 
-
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import VirtualKey from './components/VirtualKey';
 import PianoKeyboard from './components/PianoKeyboard';
 import StaveVisualizer, { NoteType } from './components/StaveVisualizer';
 import LandscapePrompt from './components/LandscapePrompt';
+import { KeyPianoLogo } from './components/KeyPianoLogo';
 import { audioEngine, SustainLevel, INSTRUMENTS, InstrumentID, MetronomeSound, METRONOME_SOUNDS } from './services/audioEngine';
 import { generateMidiFile, parseMidiFile } from './services/midiIO';
 import { 
@@ -55,7 +55,11 @@ const App: React.FC = () => {
   // VIEW STATES
   // Exclusive Main View: 'stave' | 'keyboard'
   const [mainView, setMainView] = useState<'stave' | 'keyboard'>('keyboard');
-  const [showPiano, setShowPiano] = useState(true);
+  
+  // Mobile/Responsive Defaults
+  const isMobileInit = typeof window !== 'undefined' && window.innerWidth < 1024;
+  const [showPiano, setShowPiano] = useState(!isMobileInit);
+  const [pianoHeight, setPianoHeight] = useState(isMobileInit ? 120 : 180); 
 
   // Mobile Toolbar State
   const [isToolbarOpen, setIsToolbarOpen] = useState(true);
@@ -90,13 +94,14 @@ const App: React.FC = () => {
   // Mobile/Landscape state
   const [isPortraitMobile, setIsPortraitMobile] = useState(false);
   
-  // Resizable Heights
-  const [pianoHeight, setPianoHeight] = useState(180); 
-  
   // Synth State
   const [transposeBase, setTransposeBase] = useState(0); 
   const [octaveShift, setOctaveShift] = useState(0); 
-  const [volume, setVolume] = useState(0.8);
+  
+  // Volume Control Split: Master Volume vs Key Velocity
+  const [masterVolume, setMasterVolume] = useState(0.8);
+  const [keyVelocity, setKeyVelocity] = useState(100); // Standard MIDI velocity (0-127)
+
   const [sustainLevel, setSustainLevel] = useState<SustainLevel>('SHORT');
   
   const [selectedStartInstrument, setSelectedStartInstrument] = useState<InstrumentID>('salamander');
@@ -104,6 +109,8 @@ const App: React.FC = () => {
   
   // Modifiers state
   const [tempTranspose, setTempTranspose] = useState(0); 
+  // NEW: Track modifier state specifically during playback for visual sync
+  const [playbackTempTranspose, setPlaybackTempTranspose] = useState(0);
 
   // Recording State
   const [isRecording, setIsRecording] = useState(false);
@@ -122,6 +129,9 @@ const App: React.FC = () => {
 
   // Refs
   const activeKeysRef = useRef<Set<string>>(new Set());
+  // BUGFIX: Track specific note params per key to prevent stuck notes when changing octaves/transpose while holding keys
+  const activeKeyParamsRef = useRef<Map<string, { note: string, transpose: number }>>(new Map());
+
   const synthStateRef = useRef({ transposeBase: 0, octaveShift: 0 });
   const tempTransposeRef = useRef(0);
   const recordingRef = useRef<RecordedEvent[]>([]);
@@ -134,6 +144,7 @@ const App: React.FC = () => {
   const audioCursorRef = useRef<number>(0);
   const playbackStartOffsetRef = useRef<number>(0); // Store start offset (ms) in Ref to avoid stale closure
   const playbackSpeedRef = useRef<number>(1.0); // Ref for speed to avoid closure issues in scheduler
+  const playbackTempTransposeRef = useRef(0);
 
   const workerRef = useRef<Worker | null>(null); 
   const playbackKeysRef = useRef<Set<string>>(new Set());
@@ -200,7 +211,7 @@ const App: React.FC = () => {
             (ma) => {
                 setMidiAccess(ma);
                 // Attach listeners to existing inputs
-                Array.from(ma.inputs.values()).forEach(input => {
+                Array.from(ma.inputs.values()).forEach((input: any) => {
                     input.onmidimessage = handleMidiMessage;
                 });
                 
@@ -208,14 +219,14 @@ const App: React.FC = () => {
                 ma.onstatechange = (e: WebMidi.MIDIConnectionEvent) => {
                    const port = e.port as WebMidi.MIDIInput;
                    if (port.type === 'input' && port.state === 'connected') {
-                       port.onmidimessage = handleMidiMessage;
+                       (port as any).onmidimessage = handleMidiMessage;
                    }
                 };
             },
             () => console.warn('Web MIDI API access denied or not supported.')
         );
     }
-  }, [currentInstrument, volume]); // Dependencies needed if handling logic uses closure, but handleMidiMessage needs access to Refs
+  }, [currentInstrument, masterVolume]); // Dependencies needed if handling logic uses closure, but handleMidiMessage needs access to Refs
 
   const handleMidiMessage = (e: WebMidi.MIDIMessageEvent) => {
     const { data } = e;
@@ -239,16 +250,11 @@ const App: React.FC = () => {
 
         if (isRecordingRef.current) {
             recordingRef.current.push({
-                time: Date.now() - recordingStartTime, // recordingStartTime needs to be ref or this closure is stale? 
-                // Wait, functional component closure issue. recordingStartTime is state.
-                // We need a REF for start time if we want to use it here without re-binding listener.
-                // OR we can't use state directly here easily.
-                // Simplified fix: use Date.now() for now, we might need a Ref for start time.
-                // Let's assume we fix `recordingStartTime` to be a ref below.
+                time: Date.now() - recordingStartTime, 
                 type: 'on',
                 note: noteName,
                 transpose: 0,
-                instrumentId: currentInstrument, // This is also closure stale...
+                instrumentId: currentInstrument, 
                 velocity: velocity
             });
         }
@@ -301,7 +307,6 @@ const App: React.FC = () => {
         
         if (command === 144 && velocity > 0) {
             // Note On
-            // Use current volume as a scaler if needed, but MIDI usually respects device velocity
             audioEngine.playNote(noteName, 0, velocity); 
             setActiveMidiNotes(prev => {
                 const s = new Set(prev);
@@ -350,19 +355,19 @@ const App: React.FC = () => {
     const listener = (e: WebMidi.MIDIMessageEvent) => handleMidiMessageRef.current(e);
 
     const inputs = Array.from(midiAccess.inputs.values());
-    inputs.forEach(input => {
+    inputs.forEach((input: any) => {
         input.onmidimessage = listener;
     });
 
     midiAccess.onstatechange = (e: WebMidi.MIDIConnectionEvent) => {
         const port = e.port as WebMidi.MIDIInput;
         if (port.type === 'input' && port.state === 'connected') {
-            port.onmidimessage = listener;
+            (port as any).onmidimessage = listener;
         }
     };
     
     return () => {
-        inputs.forEach(input => input.onmidimessage = null);
+        inputs.forEach((input: any) => input.onmidimessage = null);
     };
   }, [midiAccess]);
 
@@ -386,7 +391,7 @@ const App: React.FC = () => {
     const notes: string[] = [];
     
     // 1. Process Manual Computer Keys
-    activeKeys.forEach(code => {
+    activeKeys.forEach((code: string) => {
         const baseNote = currentKeyMap[code];
         if (baseNote) {
             const effTemp = getEffectiveTranspose(code);
@@ -396,10 +401,10 @@ const App: React.FC = () => {
     });
     
     // 2. Process Mouse Interaction
-    activeMouseNotes.forEach(n => notes.push(n));
+    activeMouseNotes.forEach((n: string) => notes.push(n));
 
     // 3. Process External MIDI Device
-    activeMidiNotes.forEach(n => notes.push(n));
+    activeMidiNotes.forEach((n: string) => notes.push(n));
 
     return notes;
   }, [activeKeys, activeMouseNotes, activeMidiNotes, transposeBase, octaveShift, currentKeyMap, getEffectiveTranspose]);
@@ -422,7 +427,7 @@ const App: React.FC = () => {
     const l = new Map<string, string>();
     const r = new Map<string, string>();
     
-    Object.entries(currentKeyMap).forEach(([code, note]) => {
+    Object.entries(currentKeyMap).forEach(([code, note]: [string, string]) => {
         // IMMUNE_TO_MODIFIERS roughly equates to the "Right Side" (Numpad, Nav, Arrows) in FreePiano
         if (IMMUNE_TO_MODIFIERS.has(code)) {
             // Prefer Numpad over arrows if possible for "Right Hand" piano feel
@@ -443,7 +448,7 @@ const App: React.FC = () => {
   // Legacy single map fallback
   const noteToKeyMap = useMemo(() => {
     const map = new Map<string, string>();
-    Object.entries(currentKeyMap).forEach(([code, note]) => {
+    Object.entries(currentKeyMap).forEach(([code, note]: [string, string]) => {
         const isNumpad = code.startsWith('Numpad');
         const existingCode = map.get(note);
         if (!existingCode) {
@@ -462,9 +467,9 @@ const App: React.FC = () => {
   }, [transposeBase, octaveShift]);
 
   useEffect(() => {
-    audioEngine.setVolume(volume);
+    audioEngine.setVolume(masterVolume);
     audioEngine.setSustainLevel(sustainLevel);
-  }, [volume, sustainLevel]);
+  }, [masterVolume, sustainLevel]);
 
   // Metronome Effect
   useEffect(() => {
@@ -723,6 +728,16 @@ const App: React.FC = () => {
           }
       });
 
+      // Update Playback Modifier State for Visuals
+      let modT = 0;
+      if (activeK.has('ShiftLeft')) modT = 1;
+      else if (activeK.has('ControlLeft')) modT = -1;
+      
+      if (modT !== playbackTempTransposeRef.current) {
+          setPlaybackTempTranspose(modT);
+          playbackTempTransposeRef.current = modT;
+      }
+
       let changed = false;
       if (activeK.size !== playbackKeysRef.current.size || activeN.size !== playbackNotesRef.current.size) changed = true;
       else {
@@ -795,6 +810,8 @@ const App: React.FC = () => {
 
   const pausePlayback = () => {
       setIsPlayingBack(false);
+      setPlaybackTempTranspose(0);
+      playbackTempTransposeRef.current = 0;
       workerRef.current?.postMessage('stop');
       if (animFrameRef.current) {
           cancelAnimationFrame(animFrameRef.current);
@@ -900,8 +917,8 @@ const App: React.FC = () => {
           'F2': () => setOctaveShift(o => Math.min(3, o + 1)),  // Octave Up
           'F3': () => setTransposeBase(t => t - 1),
           'F4': () => setTransposeBase(t => t + 1),
-          'F5': () => setVolume(v => Math.max(0, parseFloat((v - 0.1).toFixed(2)))), // Volume Down
-          'F6': () => setVolume(v => Math.min(2, parseFloat((v + 0.1).toFixed(2)))), // Volume Up
+          'F5': () => setKeyVelocity(v => Math.max(0, v - 10)), // Key Velocity Down
+          'F6': () => setKeyVelocity(v => Math.min(127, v + 10)), // Key Velocity Up
           'F7': () => setIsMetronomeOn(prev => !prev), // Metronome Toggle
           'F8': () => setMainView(prev => prev === 'stave' ? 'keyboard' : 'stave'), // View Toggle
           'F9': togglePlayback, // PLAY
@@ -914,6 +931,9 @@ const App: React.FC = () => {
           },
           'Coffee': () => window.open('https://paypal.me/angushushu', '_blank')
       };
+      // Lock controls during playback/recording to avoid state drift issues
+      if ((isRecording || isPlayingBack) && ['F1', 'F2', 'F3', 'F4'].includes(code)) return;
+      
       if (actions[code]) actions[code]();
   };
 
@@ -927,10 +947,15 @@ const App: React.FC = () => {
     if (note) {
       const effectiveTranspose = getEffectiveTranspose(code);
       const totalTranspose = synthStateRef.current.transposeBase + (synthStateRef.current.octaveShift * 12) + effectiveTranspose;
-      const vel = Math.min(127, Math.floor(volume * 100)); 
+      
+      // Decoupled: User's keyboard playing velocity is now independent of Master Volume
+      const vel = Math.min(127, Math.max(0, keyVelocity)); 
       
       const finalNote = getTransposedNote(note, totalTranspose);
       audioEngine.playNote(note, totalTranspose, vel);
+      
+      // NEW: Track exactly which note+transpose was played by this key
+      activeKeyParamsRef.current.set(code, { note, transpose: totalTranspose });
       
       // Update Stave Visualizer with USER type
       setTriggerNotes([{ note: finalNote, time: Date.now(), type: 'user' }]);
@@ -954,32 +979,36 @@ const App: React.FC = () => {
       activeKeysRef.current = newSet;
       return newSet;
     });
-  }, [isAudioStarted, sustainLevel, isRecording, recordingStartTime, currentInstrument, elapsedTime, isPlayingBack, volume, currentKeyMap, getEffectiveTranspose]);
+  }, [isAudioStarted, sustainLevel, isRecording, recordingStartTime, currentInstrument, elapsedTime, isPlayingBack, keyVelocity, currentKeyMap, getEffectiveTranspose]);
 
   const stopNoteByCode = useCallback((code: string) => {
     updateModifiers(code, false);
 
-    const note = currentKeyMap[code];
-    if (note) {
-      const base = synthStateRef.current.transposeBase + (synthStateRef.current.octaveShift * 12);
-      const effectiveTranspose = getEffectiveTranspose(code);
-      const totalTranspose = base + effectiveTranspose;
-      
-      audioEngine.stopNote(note, totalTranspose);
-      audioEngine.stopNote(note, base); 
-      audioEngine.stopNote(note, base + 1); 
-      audioEngine.stopNote(note, base - 1);
+    // FIX: Retrieve exactly what was played
+    const activeParams = activeKeyParamsRef.current.get(code);
 
-      if (isRecording) {
-          recordingRef.current.push({
-              time: Date.now() - recordingStartTime,
-              type: 'off',
-              note: note,
-              code: code,
-              transpose: totalTranspose,
-              instrumentId: currentInstrument
-          });
-      }
+    if (activeParams) {
+        const { note, transpose } = activeParams;
+        audioEngine.stopNote(note, transpose);
+        activeKeyParamsRef.current.delete(code);
+
+        if (isRecording) {
+            recordingRef.current.push({
+                time: Date.now() - recordingStartTime,
+                type: 'off',
+                note: note,
+                code: code,
+                transpose: transpose,
+                instrumentId: currentInstrument
+            });
+        }
+    } else {
+        // Fallback for edge cases (should rarely happen)
+        const note = currentKeyMap[code];
+        if (note) {
+            const base = synthStateRef.current.transposeBase + (synthStateRef.current.octaveShift * 12);
+            audioEngine.stopNote(note, base); 
+        }
     }
 
     setActiveKeys(prev => {
@@ -988,14 +1017,15 @@ const App: React.FC = () => {
       activeKeysRef.current = newSet;
       return newSet;
     });
-  }, [isAudioStarted, isRecording, recordingStartTime, currentInstrument, currentKeyMap, getEffectiveTranspose]);
+  }, [isAudioStarted, isRecording, recordingStartTime, currentInstrument, currentKeyMap]);
 
   const playNoteByName = useCallback((noteName: string) => {
-      audioEngine.playNote(noteName, 0, Math.min(127, Math.floor(volume * 100))); 
+      // Mouse/Touch clicks also use Key Velocity for consistency
+      audioEngine.playNote(noteName, 0, keyVelocity); 
       // Update Stave Visualizer with USER type
       setTriggerNotes([{ note: noteName, time: Date.now(), type: 'user' }]);
       setActiveMouseNotes(prev => new Set(prev).add(noteName));
-  }, [volume]);
+  }, [keyVelocity]);
 
   const stopNoteByName = useCallback((noteName: string) => {
       audioEngine.stopNote(noteName, 0);
@@ -1052,7 +1082,7 @@ const App: React.FC = () => {
          {/* Mobile Header */}
          <div className="flex items-center justify-between p-2 md:p-0 w-full md:w-auto md:border-r border-gray-700 md:mr-2">
              <div className="flex items-center gap-2 text-yellow-500 font-bold md:px-4">
-                 <Keyboard className="w-5 h-5" />
+                 <KeyPianoLogo className="w-5 h-5" />
                  <span className="inline">{t.title}</span>
                  {midiAccess && <div className="ml-1 w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_lime]" title="MIDI Device Connected"></div>}
              </div>
@@ -1084,14 +1114,18 @@ const App: React.FC = () => {
                 </select>
             </div>
             
-            {/* Volume */}
+            {/* Master Volume */}
             <div className={`flex items-center gap-2 shrink-0 ${theme.panelBg} ${theme.panelBorder} px-2 py-1 rounded border`}>
-                <Volume2 className={`w-4 h-4 ${volume > 0 ? 'text-green-500' : 'text-gray-500'}`} />
+                <Volume2 className={`w-4 h-4 ${masterVolume > 0 ? 'text-green-500' : 'text-gray-500'}`} />
                 <input 
-                type="range" min="0" max="2" step="0.05" value={volume} 
-                onChange={(e) => setVolume(parseFloat(e.target.value))}
+                type="range" min="0" max="1" step="0.01" value={masterVolume} 
+                onChange={(e) => setMasterVolume(parseFloat(e.target.value))}
                 className="w-16 md:w-24 h-2 bg-black rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-green-400"
+                title="Master Output Volume (Affects everything)"
                 />
+                <span className={`text-[10px] font-mono w-8 text-right ${isLightTheme ? 'text-black' : 'text-gray-300'}`}>
+                    {Math.round(masterVolume * 100)}%
+                </span>
             </div>
             
             {/* Metronome */}
@@ -1235,8 +1269,11 @@ const App: React.FC = () => {
                                 let displayedNote = baseNote;
                                 
                                 if (baseNote) {
-                                    // Logic mimics playNoteByCode to accurately reflect what pitch would play
-                                    let effectiveTranspose = tempTranspose;
+                                    // VISUAL LOGIC: Prioritize Manual Shift over Playback Shift if user is holding it.
+                                    // This allows "Jamming" along with playback while seeing correct notes.
+                                    const visualTempTranspose = tempTranspose !== 0 ? tempTranspose : (isPlayingBack ? playbackTempTranspose : 0);
+                                    let effectiveTranspose = visualTempTranspose;
+                                    
                                     if (IMMUNE_TO_MODIFIERS.has(k.code)) effectiveTranspose = 0;
                                     const totalShift = transposeBase + (octaveShift * 12) + effectiveTranspose;
                                     displayedNote = getTransposedNote(baseNote, totalShift);
@@ -1249,9 +1286,9 @@ const App: React.FC = () => {
                                     isActive={
                                         activeKeys.has(k.code) || 
                                         (!isPracticeMode && playbackKeys.has(k.code)) || 
-                                        (k.code === 'ShiftLeft' && tempTranspose === 1 && playbackKeys.has('ShiftLeft')) || // Ensure Shift key lights up if in playbackKeys
-                                        (k.code === 'ShiftLeft' && tempTranspose === 1) || 
-                                        (k.code === 'ControlLeft' && tempTranspose === -1)
+                                        (k.code === 'ShiftLeft' && (tempTranspose !== 0 ? tempTranspose : (isPlayingBack ? playbackTempTranspose : 0)) === 1 && (playbackKeys.has('ShiftLeft') || activeKeys.has('ShiftLeft'))) ||
+                                        (k.code === 'ShiftLeft' && (tempTranspose !== 0 ? tempTranspose : (isPlayingBack ? playbackTempTranspose : 0)) === 1) || 
+                                        (k.code === 'ControlLeft' && (tempTranspose !== 0 ? tempTranspose : (isPlayingBack ? playbackTempTranspose : 0)) === -1)
                                     }
                                     isPlaybackActive={isPracticeMode && playbackKeys.has(k.code)}
                                     onMouseDown={handleMouseDown} onMouseUp={handleMouseUp} theme={theme}
@@ -1273,12 +1310,12 @@ const App: React.FC = () => {
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-20 pointer-events-none"><GripHorizontal className="w-4 h-4" /></div>
           <div className="flex gap-4 items-center z-10 pointer-events-auto cursor-default">
               <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()}><span>{t.controls.base}:</span>
-                  <select value={transposeBase} onChange={(e) => setTransposeBase(parseInt(e.target.value))} className="bg-gray-200 text-black px-1 min-w-[50px] text-center rounded-[2px] h-5 border-none outline-none cursor-pointer">
+                  <select disabled={isRecording || isPlayingBack} value={transposeBase} onChange={(e) => setTransposeBase(parseInt(e.target.value))} className="bg-gray-200 text-black px-1 min-w-[50px] text-center rounded-[2px] h-5 border-none outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
                       {Array.from({length: 25}, (_, i) => i - 12).map(val => (<option key={val} value={val}>{getRootKeyName(val)}</option>))}
                   </select>
               </div>
-              <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()}><span>{t.controls.vel}:</span>
-                  <input type="number" min="0" max="200" value={Math.round(volume * 100)} onChange={(e) => setVolume(Math.min(2, Math.max(0, parseInt(e.target.value) / 100)))} className="bg-gray-200 text-black px-1 w-[40px] text-center rounded-[2px] h-5 border-none outline-none" />
+              <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()} title="Keyboard Velocity (0-127)"><span>{t.controls.vel}:</span>
+                  <input type="number" min="0" max="127" value={keyVelocity} onChange={(e) => setKeyVelocity(Math.min(127, Math.max(0, parseInt(e.target.value))))} className="bg-gray-200 text-black px-1 w-[40px] text-center rounded-[2px] h-5 border-none outline-none" />
               </div>
           </div>
           <div className="flex gap-4 items-center z-10 pointer-events-auto cursor-default">
@@ -1288,7 +1325,7 @@ const App: React.FC = () => {
                   </select>
               </div>
               <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()}><span>{t.controls.oct}:</span>
-                  <select value={octaveShift} onChange={(e) => setOctaveShift(parseInt(e.target.value))} className="bg-gray-200 text-black px-1 w-[40px] text-center rounded-[2px] h-5 border-none outline-none cursor-pointer">
+                  <select disabled={isRecording || isPlayingBack} value={octaveShift} onChange={(e) => setOctaveShift(parseInt(e.target.value))} className="bg-gray-200 text-black px-1 w-[40px] text-center rounded-[2px] h-5 border-none outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
                       {Array.from({length: 7}, (_, i) => i - 3).map(val => (<option key={val} value={val}>{val > 0 ? `+${val}` : val}</option>))}
                   </select>
               </div>
@@ -1337,7 +1374,7 @@ const App: React.FC = () => {
         <div className={`absolute inset-0 z-50 flex flex-col items-center justify-center ${theme.appBg} p-4 transition-colors duration-300`}>
           <div className="flex flex-col items-center max-w-md w-full gap-8">
               <div className="flex flex-col items-center gap-2">
-                 <div className="p-4 bg-yellow-500/10 rounded-full mb-2"><Keyboard className="w-16 h-16 text-yellow-500" /></div>
+                 <div className="p-4 bg-yellow-500/10 rounded-full mb-2"><KeyPianoLogo className="w-16 h-16 text-yellow-500" /></div>
                  <h1 className={`text-3xl font-bold ${themeId === 'light' ? 'text-black' : 'text-white'} tracking-tight`}>{t.title}</h1>
                  <p className="text-gray-400 text-center">{t.description}</p>
               </div>

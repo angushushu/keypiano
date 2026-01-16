@@ -359,7 +359,7 @@ class AudioEngine {
     }
 
     public setVolume(val: number) {
-        this.volume = val * 2.0; 
+        this.volume = val; 
         if (this.masterGain && this.ctx) {
             this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
             this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, this.ctx.currentTime);

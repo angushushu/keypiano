@@ -1,5 +1,5 @@
 
-import React, { useRef } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { Theme } from '../theme';
 import { NOTE_NAMES } from '../constants';
 
@@ -23,27 +23,31 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
         pianoBlackKeyPlayback: 'bg-green-700',
     };
     
-    const allKeys = [];
-    
-    // A0 (Index 0 for loop) to C8 (Index 87)
-    for (let i = 0; i < 88; i++) {
-        const midi = i + 21;
-        const octave = Math.floor(midi / 12) - 1;
-        const noteNameIndex = midi % 12;
-        const noteName = NOTE_NAMES[noteNameIndex];
-        const isBlack = noteName.includes('#');
-        const noteId = `${noteName}${octave}`;
-        
-        allKeys.push({
-            midi,
-            note: noteName,
-            octave,
-            isBlack,
-            noteId
-        });
-    }
+    // Memoize keys generation to avoid recalculation on every render
+    const { allKeys, whiteKeys } = useMemo(() => {
+        const keys = [];
+        for (let i = 0; i < 88; i++) {
+            const midi = i + 21;
+            const octave = Math.floor(midi / 12) - 1;
+            const noteNameIndex = midi % 12;
+            const noteName = NOTE_NAMES[noteNameIndex];
+            const isBlack = noteName.includes('#');
+            const noteId = `${noteName}${octave}`;
+            
+            keys.push({
+                midi,
+                note: noteName,
+                octave,
+                isBlack,
+                noteId
+            });
+        }
+        return { 
+            allKeys: keys, 
+            whiteKeys: keys.filter(k => !k.isBlack) 
+        };
+    }, []);
 
-    const whiteKeys = allKeys.filter(k => !k.isBlack);
     const lastTouchNoteId = useRef<string | null>(null);
     
     // Helper to handle both click and swipe (glissando) for MOUSE
