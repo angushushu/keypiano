@@ -143,8 +143,10 @@ class AudioEngine {
     private activeSources: Map<string, { source: AudioBufferSourceNode, gain: GainNode }> = new Map();
     
     public isLoaded = false;
+    public networkErrors: string[] = [];
     private volume: number = 0.5;
     private sustainLevel: SustainLevel = 'SHORT';
+    private isSustainOverrideDown: boolean = false; // For physical MIDI CC 64 pedal
     private currentInstrument: InstrumentID = 'salamander';
 
     // Metronome State
@@ -341,6 +343,7 @@ class AudioEngine {
     }
 
     private async loadSamples(baseUrl: string, map: Record<string, string>) {
+        this.networkErrors = [];
         const promises = Object.entries(map).map(async ([note, file]) => {
             try {
                 const url = `${baseUrl}${file}`;
@@ -352,7 +355,10 @@ class AudioEngine {
                     const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
                     this.buffers.set(note, audioBuffer);
                 }
-            } catch (e) { }
+            } catch (e) {
+                console.warn(`Failed to open sample ${file}:`, e);
+                this.networkErrors.push(note);
+            }
         });
 
         await Promise.all(promises);
@@ -369,6 +375,10 @@ class AudioEngine {
 
     public setSustainLevel(level: SustainLevel) {
         this.sustainLevel = level;
+    }
+
+    public overrideSustain(isDown: boolean) {
+        this.isSustainOverrideDown = isDown;
     }
 
     private getNoteNumber(note: string): number {
@@ -451,11 +461,13 @@ class AudioEngine {
             const t = when || this.ctx.currentTime;
             
             let release = 0.2;
-            if (this.sustainLevel === 'LONG') release = 2.0;
-            else if (this.sustainLevel === 'SHORT') release = 0.5;
+            const effectiveSustain = this.isSustainOverrideDown ? 'LONG' : this.sustainLevel;
+
+            if (effectiveSustain === 'LONG') release = 2.0;
+            else if (effectiveSustain === 'SHORT') release = 0.5;
             
             if (this.currentInstrument === 'string_ensemble_1' || this.currentInstrument === 'lead_1_square') {
-                if (this.sustainLevel === 'SHORT') release = 1.0;
+                if (effectiveSustain === 'SHORT') release = 1.0;
             }
 
             try {

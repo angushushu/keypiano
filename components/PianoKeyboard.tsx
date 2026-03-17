@@ -6,12 +6,13 @@ import { NOTE_NAMES } from '../constants';
 interface PianoKeyboardProps {
     activeNotes: string[]; // User triggered notes (Strong)
     playbackNotes?: string[]; // Playback/Practice triggered notes (Ghost)
+    upcomingNotes?: string[]; // Practice upcoming keys (Buffer)
     onPlayNote: (note: string) => void;
     onStopNote: (note: string) => void;
     theme?: Theme;
 }
 
-const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNotes = [], onPlayNote, onStopNote, theme }) => {
+const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNotes = [], upcomingNotes = [], onPlayNote, onStopNote, theme }) => {
     // Fallback if no theme provided
     const t = theme || {
         pianoBg: 'bg-black',
@@ -112,12 +113,12 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
             {whiteKeys.map((k) => {
                  const isUserActive = activeNotes.includes(k.noteId);
                  const isPlaybackActive = playbackNotes.includes(k.noteId);
+                 const isUpcoming = upcomingNotes.includes(k.noteId);
                  
                  let keyClass = t.pianoWhiteKey;
-                 // Priority changed: Playback color stays even if pressed (User requested)
-                 // But we add brightness to indicate press if needed
                  if (isPlaybackActive) keyClass = t.pianoWhiteKeyPlayback;
                  else if (isUserActive) keyClass = t.pianoWhiteKeyActive;
+                 else if (isUpcoming) keyClass = '!bg-green-100/80 outline outline-2 outline-green-400 outline-offset-[-2px]';
 
                  // Visual feedback for press on top of color
                  const extraClass = (isUserActive && isPlaybackActive) ? '!brightness-110' : '';
@@ -154,10 +155,12 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
                      
                      const isUserActive = activeNotes.includes(k.noteId);
                      const isPlaybackActive = playbackNotes.includes(k.noteId);
+                     const isUpcoming = upcomingNotes.includes(k.noteId);
 
                      let keyClass = t.pianoBlackKey;
                      if (isPlaybackActive) keyClass = t.pianoBlackKeyPlayback;
                      else if (isUserActive) keyClass = t.pianoBlackKeyActive;
+                     else if (isUpcoming) keyClass = '!bg-green-800 outline outline-2 outline-green-400 outline-offset-[-2px]';
 
                      const extraClass = (isUserActive && isPlaybackActive) ? '!brightness-125' : '';
 

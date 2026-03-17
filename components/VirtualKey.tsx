@@ -11,6 +11,7 @@ interface VirtualKeyProps {
   height?: number; // 1 row = 1 grid row (unless spanning)
   isActive: boolean; // User interaction
   isPlaybackActive?: boolean; // Playback/Practice mode interaction
+  isUpcoming?: boolean; // Pre-load interaction
   isModifier?: boolean;
   isDummy?: boolean;
   customLabel?: string;
@@ -51,6 +52,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   height = 1,
   isActive, 
   isPlaybackActive,
+  isUpcoming,
   isDummy,
   customLabel,
   onMouseDown,
@@ -104,6 +106,8 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
       stateClass = theme.keyPlayback;
   } else if (isActive) {
       stateClass = theme.keyActive;
+  } else if (isUpcoming) {
+      stateClass = `${theme.keyBase} !bg-none !bg-green-200/50 outline outline-2 outline-green-500 outline-offset-[-2px]`;
   } else {
       stateClass = theme.keyBase;
   }
