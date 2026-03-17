@@ -1,0 +1,5 @@
+{
+  "name": "KeyPiano",
+  "description": "A browser-based keyboard piano utilizing the FreePiano 2.2 keymap structure. Turn your computer keyboard into a polyphonic synthesizer.",
+  "requestFramePermissions": []
+}
