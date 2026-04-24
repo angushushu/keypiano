@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useMemo } from 'react';
 import { RecordedEvent } from '../types';
-import { NOTE_NAMES, getTransposedNote, FLAT_TO_SHARP } from '../constants';
+import { NOTE_NAMES, getTransposedNote, FLAT_TO_SHARP, noteToMidi } from '../constants';
 import { Theme } from '../theme';
 
 interface WaterfallVisualizerProps {
@@ -10,16 +10,6 @@ interface WaterfallVisualizerProps {
     lookaheadMs?: number; 
     theme?: Theme;
 }
-
-const noteToMidi = (noteStr: string): number => {
-    const match = noteStr.match(/([A-G][#b]?)(-?\d+)/);
-    if (!match) return 60;
-    let name = match[1];
-    if (FLAT_TO_SHARP[name]) name = FLAT_TO_SHARP[name];
-    const oct = parseInt(match[2], 10);
-    const idx = NOTE_NAMES.indexOf(name);
-    return idx + (oct + 1) * 12;
-};
 
 const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
     recording,
@@ -90,6 +80,9 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
         return blocks;
     }, [recording, keyLayout]);
 
+    // Track canvas dimensions to avoid reallocating every frame
+    const canvasSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
+
     // Render loop
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -99,17 +92,36 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
 
         let animationFrameId: number;
 
-        const render = () => {
+        const updateCanvasSize = () => {
             const rect = canvas.getBoundingClientRect();
-            // Handle DPI scaling
             const dpr = window.devicePixelRatio || 1;
-            canvas.width = rect.width * dpr;
-            canvas.height = rect.height * dpr;
-            ctx.scale(dpr, dpr);
+            const newW = Math.round(rect.width * dpr);
+            const newH = Math.round(rect.height * dpr);
+            if (canvasSizeRef.current.width !== newW || canvasSizeRef.current.height !== newH) {
+                canvas.width = newW;
+                canvas.height = newH;
+                canvasSizeRef.current = { width: newW, height: newH };
+            }
+        };
 
-            const width = rect.width;
-            const height = rect.height;
+        // ResizeObserver to handle container size changes
+        const resizeObserver = new ResizeObserver(() => {
+            updateCanvasSize();
+        });
+        resizeObserver.observe(canvas);
+        updateCanvasSize();
 
+        const render = () => {
+            const { width: cw, height: ch } = canvasSizeRef.current;
+            if (cw === 0 || ch === 0) {
+                animationFrameId = requestAnimationFrame(render);
+                return;
+            }
+            const dpr = window.devicePixelRatio || 1;
+            const width = cw / dpr;
+            const height = ch / dpr;
+
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             ctx.clearRect(0, 0, width, height);
 
             // Time window bounds
@@ -140,30 +152,31 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
 
                 const pixelsPerMs = height / (lookaheadMs / playbackSpeed);
                 
-                // Distance from current time
                 const msFromHitToStart = blk.startTime - currentTimeMs;
                 const msFromHitToEnd = blk.endTime - currentTimeMs;
 
-                // Y is inverted (0 is top, height is bottom)
                 let yBottom = height - (msFromHitToStart * pixelsPerMs);
                 let yTop = height - (msFromHitToEnd * pixelsPerMs);
                 
-                // Clamp bounds specifically so very long notes don't break roundRect
                 yTop = Math.max(-50, yTop);
                 yBottom = Math.min(height + 50, yBottom);
 
-                const blockHeight = Math.max(yBottom - yTop, 4); // Min height of 4px
+                const blockHeight = Math.max(yBottom - yTop, 4);
                 
                 const radius = Math.min(blockWidth / 3, 4);
-                
-                ctx.fillStyle = blk.isBlack 
-                    ? '#22c55e' // green-500
-                    : '#86efac'; // green-300
 
-                // Add active glow effect if currently intersecting the hit line
+                const baseColorHex = blk.isBlack ? (theme?.waterfallBlackHex || '#22c55e') : (theme?.waterfallWhiteHex || '#86efac');
+                const fadedColor = baseColorHex + '0D';
+                
+                const gradient = ctx.createLinearGradient(0, yTop, 0, yBottom);
+                gradient.addColorStop(0, fadedColor);
+                gradient.addColorStop(1, baseColorHex);
+
+                ctx.fillStyle = gradient;
+
                 if (currentTimeMs >= blk.startTime && currentTimeMs <= blk.endTime) {
-                    ctx.shadowBlur = 10;
-                    ctx.shadowColor = ctx.fillStyle;
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = baseColorHex;
                 } else {
                     ctx.shadowBlur = 0;
                 }
@@ -181,12 +194,13 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
             animationFrameId = requestAnimationFrame(render);
         };
         
-        render(); // Use rAF to ensure smooth interpolation between React's 25ms timer ticks
+        render();
 
         return () => {
             cancelAnimationFrame(animationFrameId);
+            resizeObserver.disconnect();
         };
-    }, [noteBlocks, currentTimeMs, playbackSpeed, lookaheadMs, keyLayout]);
+    }, [noteBlocks, currentTimeMs, playbackSpeed, lookaheadMs, keyLayout, theme]);
 
     return (
         <div className="w-full h-full p-1 rounded bg-[#1a1a1a]">

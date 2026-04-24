@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Theme } from '../theme';
+import { getJianpu } from '../constants';
 
 interface VirtualKeyProps {
   label: string;
@@ -20,29 +21,6 @@ interface VirtualKeyProps {
   theme: Theme; 
 }
 
-// Map Note Name to Number
-const NOTE_TO_JIANPU_MAP: Record<string, string> = {
-  'C': '1', 'C#': '#1', 'Db': 'b2',
-  'D': '2', 'D#': '#2', 'Eb': 'b3',
-  'E': '3', 
-  'F': '4', 'F#': '#4', 'Gb': 'b5',
-  'G': '5', 'G#': '#5', 'Ab': 'b6',
-  'A': '6', 'A#': '#6', 'Bb': 'b7',
-  'B': '7'
-};
-
-// Helper to convert Note (e.g. C4, F#5) to Jianpu (1, #4 with dots)
-const getJianpu = (note: string) => {
-  const match = note.match(/([A-G][#b]?)(-?\d+)/);
-  if (!match) return null;
-  
-  let [_, name, octStr] = match;
-  let octave = parseInt(octStr);
-
-  const number = NOTE_TO_JIANPU_MAP[name] || name;
-  const diff = octave - 4;
-  return { number, diff };
-};
 
 const VirtualKey: React.FC<VirtualKeyProps> = ({ 
   label, 
@@ -97,7 +75,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   if (isDummy) {
       stateClass = theme.keyDummy;
   } else if (isCoffee) {
-      stateClass = `bg-transparent border-none shadow-none transition-all ${isActive ? 'opacity-100 scale-95' : `opacity-60 hover:opacity-100 hover:${theme.coffeeHover}`}`;
+      stateClass = `bg-transparent border-none shadow-none transition-all ${isActive ? 'opacity-100 scale-95' : `opacity-60 hover:opacity-100`}`;
   } else if (isPlaybackActive && isActive) {
       // Hybrid state: Playback color (guide) but Active geometry (pressed)
       // We manually ensure it looks pressed while keeping the guide color
@@ -107,7 +85,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   } else if (isActive) {
       stateClass = theme.keyActive;
   } else if (isUpcoming) {
-      stateClass = `${theme.keyBase} !bg-none !bg-green-200/50 outline outline-2 outline-green-500 outline-offset-[-2px]`;
+      stateClass = `${theme.keyBase} ${theme.keyUpcoming}`;
   } else {
       stateClass = theme.keyBase;
   }
@@ -152,12 +130,19 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
     <div 
         className={`${baseClasses} ${stateClass}`}
         style={style}
+        role="button"
+        aria-label={mappedNote ? `Play note ${mappedNote}` : displayLabel}
+        aria-pressed={isActive || isPlaybackActive || false}
+        aria-disabled={isDummy || false}
+        tabIndex={isDummy ? -1 : 0}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave} 
         onMouseEnter={handleMouseEnter}
         onTouchStart={(e) => { e.preventDefault(); handleMouseDown(); }}
         onTouchEnd={(e) => { e.preventDefault(); handleMouseUp(); }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleMouseDown(); } }}
+        onKeyUp={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleMouseUp(); } }}
     >
       {!isFunctionKey && !isCoffee && !isDummy && (
           <span className={`absolute top-[2px] left-[3px] text-[10px] font-sans font-bold leading-none hidden lg:block ${labelTextColor}`}>

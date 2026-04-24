@@ -4,28 +4,28 @@ import { Theme } from '../theme';
 import { NOTE_NAMES } from '../constants';
 
 interface PianoKeyboardProps {
-    activeNotes: string[]; // User triggered notes (Strong)
-    playbackNotes?: string[]; // Playback/Practice triggered notes (Ghost)
-    upcomingNotes?: string[]; // Practice upcoming keys (Buffer)
+    activeNotes: Set<string>;
+    playbackNotes?: Set<string>;
+    upcomingNotes?: Set<string>;
     onPlayNote: (note: string) => void;
     onStopNote: (note: string) => void;
     theme?: Theme;
 }
 
-const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNotes = [], upcomingNotes = [], onPlayNote, onStopNote, theme }) => {
-    // Fallback if no theme provided
+const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNotes = new Set(), upcomingNotes = new Set(), onPlayNote, onStopNote, theme }) => {
     const t = theme || {
         pianoBg: 'bg-black',
         pianoWhiteKey: 'bg-gradient-to-b from-white to-gray-200',
         pianoWhiteKeyActive: 'bg-yellow-400',
         pianoWhiteKeyPlayback: 'bg-green-300',
+        pianoWhiteKeyUpcoming: 'bg-green-100',
         pianoBlackKey: 'bg-gradient-to-b from-gray-800 to-black',
         pianoBlackKeyActive: 'bg-yellow-600',
-        pianoBlackKeyPlayback: 'bg-green-700',
+        pianoBlackKeyPlayback: 'bg-green-600',
+        pianoBlackKeyUpcoming: 'bg-green-800'
     };
-    
-    // Memoize keys generation to avoid recalculation on every render
-    const { allKeys, whiteKeys } = useMemo(() => {
+
+    const { allKeys, whiteKeys, midiToWhiteIdx } = useMemo(() => {
         const keys = [];
         for (let i = 0; i < 88; i++) {
             const midi = i + 21;
@@ -34,27 +34,20 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
             const noteName = NOTE_NAMES[noteNameIndex];
             const isBlack = noteName.includes('#');
             const noteId = `${noteName}${octave}`;
-            
-            keys.push({
-                midi,
-                note: noteName,
-                octave,
-                isBlack,
-                noteId
-            });
+
+            keys.push({ midi, note: noteName, octave, isBlack, noteId });
         }
-        return { 
-            allKeys: keys, 
-            whiteKeys: keys.filter(k => !k.isBlack) 
-        };
+        const wk = keys.filter(k => !k.isBlack);
+        const idxMap = new Map<number, number>();
+        wk.forEach((k, i) => idxMap.set(k.midi, i));
+        return { allKeys: keys, whiteKeys: wk, midiToWhiteIdx: idxMap };
     }, []);
 
     const lastTouchNoteId = useRef<string | null>(null);
-    
-    // Helper to handle both click and swipe (glissando) for MOUSE
+
     const handleNoteAction = (noteId: string, action: 'down' | 'up' | 'enter' | 'leave', e: React.MouseEvent) => {
-        e.preventDefault(); 
-        
+        e.preventDefault();
+
         if (action === 'down') {
             onPlayNote(noteId);
         } else if (action === 'up') {
@@ -66,7 +59,6 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
         }
     };
 
-    // TOUCH HANDLERS
     const handleTouchStart = (e: React.TouchEvent, noteId: string) => {
         onPlayNote(noteId);
         lastTouchNoteId.current = noteId;
@@ -76,7 +68,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
         const touch = e.touches[0];
         const target = document.elementFromPoint(touch.clientX, touch.clientY);
         const keyEl = target?.closest('[data-note-id]');
-        
+
         if (keyEl) {
             const noteId = keyEl.getAttribute('data-note-id');
             if (noteId && noteId !== lastTouchNoteId.current) {
@@ -101,32 +93,37 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
         }
     };
 
+    const unitWidthPct = 100 / whiteKeys.length;
+    const blackWidthPct = unitWidthPct * 0.65;
+
     return (
-        <div 
+        <div
             className={`relative h-48 md:h-60 flex select-none overflow-hidden p-1 rounded w-full cursor-pointer touch-none ${t.pianoBg}`}
             style={{ touchAction: 'none' }}
-            onMouseLeave={() => {}}
+            role="group"
+            aria-label="Piano keyboard"
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             onTouchCancel={handleTouchEnd}
         >
             {whiteKeys.map((k) => {
-                 const isUserActive = activeNotes.includes(k.noteId);
-                 const isPlaybackActive = playbackNotes.includes(k.noteId);
-                 const isUpcoming = upcomingNotes.includes(k.noteId);
-                 
+                 const isUserActive = activeNotes.has(k.noteId);
+                 const isPlaybackActive = playbackNotes.has(k.noteId);
+                 const isUpcoming = upcomingNotes.has(k.noteId);
+
                  let keyClass = t.pianoWhiteKey;
                  if (isPlaybackActive) keyClass = t.pianoWhiteKeyPlayback;
                  else if (isUserActive) keyClass = t.pianoWhiteKeyActive;
-                 else if (isUpcoming) keyClass = '!bg-green-100/80 outline outline-2 outline-green-400 outline-offset-[-2px]';
-
-                 // Visual feedback for press on top of color
+                 else if (isUpcoming) keyClass = `${t.pianoWhiteKey} ${t.pianoWhiteKeyUpcoming}`;
                  const extraClass = (isUserActive && isPlaybackActive) ? '!brightness-110' : '';
-
                  return (
-                     <div 
+                     <div
                          key={k.noteId}
-                         data-note-id={k.noteId} 
+                         data-note-id={k.noteId}
+                         role="button"
+                         aria-label={`${k.noteId}${k.note === 'C' ? ` (C${k.octave})` : ''}`}
+                         aria-pressed={isUserActive || isPlaybackActive || false}
+                         tabIndex={-1}
                          className={`flex-1 border-l border-b border-r border-gray-400 rounded-b-[4px] relative ${keyClass} ${extraClass}`}
                          onMouseDown={(e) => handleNoteAction(k.noteId, 'down', e)}
                          onMouseUp={(e) => handleNoteAction(k.noteId, 'up', e)}
@@ -140,34 +137,36 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
                      </div>
                  );
             })}
-            
+
             {/* Render Black Keys Overlay */}
-            <div className="absolute inset-0 pointer-events-none pl-1 pr-1"> 
+            <div className="absolute inset-0 pointer-events-none pl-1 pr-1">
                  {allKeys.map((k) => {
                      if (!k.isBlack) return null;
-                     
-                     const prevWhiteIndex = whiteKeys.findIndex(wk => wk.midi === k.midi - 1);
-                     if (prevWhiteIndex === -1) return null;
 
-                     const unitWidthPct = 100 / whiteKeys.length;
-                     const blackWidthPct = unitWidthPct * 0.65;
+                     const prevWhiteIndex = midiToWhiteIdx.get(k.midi - 1);
+                     if (prevWhiteIndex === undefined) return null;
+
                      const leftPct = (prevWhiteIndex + 1) * unitWidthPct - (blackWidthPct / 2);
-                     
-                     const isUserActive = activeNotes.includes(k.noteId);
-                     const isPlaybackActive = playbackNotes.includes(k.noteId);
-                     const isUpcoming = upcomingNotes.includes(k.noteId);
+
+                     const isUserActive = activeNotes.has(k.noteId);
+                     const isPlaybackActive = playbackNotes.has(k.noteId);
+                     const isUpcoming = upcomingNotes.has(k.noteId);
 
                      let keyClass = t.pianoBlackKey;
                      if (isPlaybackActive) keyClass = t.pianoBlackKeyPlayback;
                      else if (isUserActive) keyClass = t.pianoBlackKeyActive;
-                     else if (isUpcoming) keyClass = '!bg-green-800 outline outline-2 outline-green-400 outline-offset-[-2px]';
+                     else if (isUpcoming) keyClass = `${t.pianoBlackKey} ${t.pianoBlackKeyUpcoming}`;
 
                      const extraClass = (isUserActive && isPlaybackActive) ? '!brightness-125' : '';
 
                      return (
-                         <div 
+                         <div
                              key={k.noteId}
-                             data-note-id={k.noteId} 
+                             data-note-id={k.noteId}
+                             role="button"
+                             aria-label={k.noteId}
+                             aria-pressed={isUserActive || isPlaybackActive || false}
+                             tabIndex={-1}
                              className={`absolute h-[64%] border-b-4 rounded-b-[3px] z-10 pointer-events-auto ${keyClass} ${extraClass}`}
                              style={{
                                  left: `${leftPct}%`,
@@ -186,4 +185,4 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
     );
 };
 
-export default PianoKeyboard;
+export default React.memo(PianoKeyboard);

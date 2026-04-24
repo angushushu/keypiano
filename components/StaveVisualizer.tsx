@@ -180,7 +180,7 @@ const StaveVisualizer: React.FC<StaveVisualizerProps> = ({ triggerNotes, theme }
         ctx.scale(dpr, dpr);
         ctx.clearRect(0, 0, width, height);
 
-        const isLight = theme.id === 'light' || theme.id === 'minimalist' || theme.id === 'pastel' || theme.id === 'fauvism';
+        const isLight = theme.isLight;
         const inkColor = isLight ? '#111' : '#e4e4e7';
         // Ghost color for practice mode
         const ghostColor = isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.3)';
@@ -301,7 +301,7 @@ const StaveVisualizer: React.FC<StaveVisualizerProps> = ({ triggerNotes, theme }
         });
     };
     
-    const isLight = theme.id === 'light' || theme.id === 'minimalist' || theme.id === 'pastel' || theme.id === 'fauvism';
+    const isLight = theme.isLight;
     const bgClass = isLight ? 'bg-[#fffaf0]' : 'bg-[#222]'; 
 
     return (

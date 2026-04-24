@@ -2,84 +2,6 @@
 
 import { NOTE_NAMES, FLAT_TO_SHARP } from '../constants';
 
-// Extend Window interface for Webkit Audio Context support
-declare global {
-    interface Window {
-        webkitAudioContext: typeof AudioContext;
-    }
-
-    // Web MIDI API Global Definitions
-    namespace WebMidi {
-        interface MIDIOptions {
-            sysex?: boolean;
-            software?: boolean;
-        }
-
-        interface MIDIInputMap {
-            forEach(callbackfn: (value: MIDIInput, key: string, parent: MIDIInputMap) => void, thisArg?: any): void;
-            get(key: string): MIDIInput | undefined;
-            has(key: string): boolean;
-            readonly size: number;
-            entries(): IterableIterator<[string, MIDIInput]>;
-            keys(): IterableIterator<string>;
-            values(): IterableIterator<MIDIInput>;
-            [Symbol.iterator](): IterableIterator<[string, MIDIInput]>;
-        }
-
-        interface MIDIOutputMap {
-            forEach(callbackfn: (value: MIDIOutput, key: string, parent: MIDIOutputMap) => void, thisArg?: any): void;
-            get(key: string): MIDIOutput | undefined;
-            has(key: string): boolean;
-            readonly size: number;
-            entries(): IterableIterator<[string, MIDIOutput]>;
-            keys(): IterableIterator<string>;
-            values(): IterableIterator<MIDIOutput>;
-            [Symbol.iterator](): IterableIterator<[string, MIDIOutput]>;
-        }
-
-        interface MIDIAccess extends EventTarget {
-            inputs: MIDIInputMap;
-            outputs: MIDIOutputMap;
-            onstatechange: ((this: MIDIAccess, ev: MIDIConnectionEvent) => any) | null;
-            sysexEnabled: boolean;
-        }
-
-        interface MIDIPort extends EventTarget {
-            id: string;
-            manufacturer?: string;
-            name?: string;
-            type: "input" | "output";
-            version?: string;
-            state: "connected" | "disconnected";
-            connection: "open" | "closed" | "pending";
-            onstatechange: ((this: MIDIPort, ev: MIDIConnectionEvent) => any) | null;
-            open(): Promise<MIDIPort>;
-            close(): Promise<MIDIPort>;
-        }
-
-        interface MIDIInput extends MIDIPort {
-            onmidimessage: ((this: MIDIInput, ev: MIDIMessageEvent) => any) | null;
-        }
-
-        interface MIDIOutput extends MIDIPort {
-            send(data: number[] | Uint8Array, timestamp?: number): void;
-            clear(): void;
-        }
-
-        interface MIDIMessageEvent extends Event {
-            data: Uint8Array;
-        }
-
-        interface MIDIConnectionEvent extends Event {
-            port: MIDIPort;
-        }
-    }
-
-    interface Navigator {
-        requestMIDIAccess(options?: WebMidi.MIDIOptions): Promise<WebMidi.MIDIAccess>;
-    }
-}
-
 // Audio Engine - Sampler Based
 
 // Instrument Definitions
@@ -165,9 +87,9 @@ class AudioEngine {
             this.ctx = new AudioContextClass();
             
             this.compressor = this.ctx.createDynamicsCompressor();
-            this.compressor.threshold.value = -10;
-            this.compressor.knee.value = 30;
-            this.compressor.ratio.value = 12;
+            this.compressor.threshold.value = -3;
+            this.compressor.knee.value = 5;
+            this.compressor.ratio.value = 4;
             this.compressor.attack.value = 0.003;
             this.compressor.release.value = 0.25;
             this.compressor.connect(this.ctx.destination);
@@ -270,16 +192,18 @@ class AudioEngine {
             gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
             osc.start(time);
             osc.stop(time + 0.1);
+            osc.onended = () => { osc.disconnect(); gain.disconnect(); };
         } else if (this.metronomeSound === 'woodblock') {
             const osc = this.ctx.createOscillator();
             osc.frequency.value = 800;
             osc.connect(gain);
             gain.gain.setValueAtTime(0.7, time);
-            gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08); // shorter decay
+            gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
             osc.start(time);
             osc.stop(time + 0.08);
+            osc.onended = () => { osc.disconnect(); gain.disconnect(); };
         } else if (this.metronomeSound === 'click') {
-            const bufferSize = this.ctx.sampleRate * 0.05; // 50ms
+            const bufferSize = this.ctx.sampleRate * 0.05;
             const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
             const data = buffer.getChannelData(0);
             for (let i = 0; i < bufferSize; i++) {
@@ -300,6 +224,7 @@ class AudioEngine {
             gain.gain.exponentialRampToValueAtTime(0.001, time + 0.03);
             
             noise.start(time);
+            noise.onended = () => { noise.disconnect(); filter.disconnect(); gain.disconnect(); };
         }
     }
 
@@ -344,24 +269,49 @@ class AudioEngine {
 
     private async loadSamples(baseUrl: string, map: Record<string, string>) {
         this.networkErrors = [];
-        const promises = Object.entries(map).map(async ([note, file]) => {
-            try {
-                const url = `${baseUrl}${file}`;
-                const response = await fetch(url);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const arrayBuffer = await response.arrayBuffer();
-                
-                if (this.ctx) {
-                    const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
-                    this.buffers.set(note, audioBuffer);
-                }
-            } catch (e) {
-                console.warn(`Failed to open sample ${file}:`, e);
-                this.networkErrors.push(note);
-            }
-        });
+        const entries = Object.entries(map);
 
-        await Promise.all(promises);
+        // Priority notes for immediate start (middle octaves)
+        const priorityKeys = ['C3', 'E3', 'A3', 'C4', 'E4', 'A4', 'C5', 'E5', 'A5'];
+        
+        let priorityEntries = entries.filter(([note]) => priorityKeys.includes(note));
+        const backgroundEntries = entries.filter(([note]) => !priorityKeys.includes(note));
+
+        // If no matching priority keys (different naming scheme), just take first few
+        if (priorityEntries.length === 0 && backgroundEntries.length > 5) {
+            priorityEntries = backgroundEntries.splice(0, 5);
+        }
+
+        const fetchSubset = (list: [string, string][]) => {
+            return Promise.all(list.map(async ([note, file]) => {
+                try {
+                    const url = `${baseUrl}${file}`;
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const arrayBuffer = await response.arrayBuffer();
+
+                    if (this.ctx) {
+                        const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
+                        this.buffers.set(note, audioBuffer);
+                    }
+                } catch (e) {
+                    console.warn(`Failed to open sample ${file}:`, e);
+                    this.networkErrors.push(note);
+                }
+            }));
+        };
+
+        // Wait for priority samples to load first
+        await fetchSubset(priorityEntries);
+
+        // Fire and forget the rest in the background to unblock initialization
+        if (backgroundEntries.length > 0) {
+            fetchSubset(backgroundEntries).then(() => {
+                if (this.networkErrors.length > 0) {
+                    console.warn(`${this.networkErrors.length} background samples failed to load`);
+                }
+            }).catch(console.error);
+        }
     }
 
     public setVolume(val: number) {
@@ -439,7 +389,8 @@ class AudioEngine {
 
         const gain = this.ctx.createGain();
         const normalizedVel = Math.max(0, Math.min(127, velocity)) / 127;
-        const gainValue = normalizedVel * normalizedVel; 
+        // Make the velocity curve less aggressive for quiet play, and boost the overall signal slightly
+        const gainValue = Math.pow(normalizedVel, 1.5) * 1.5; 
         
         gain.gain.value = gainValue;
 
@@ -460,12 +411,12 @@ class AudioEngine {
             const { source, gain } = active;
             const t = when || this.ctx.currentTime;
             
-            let release = 0.2;
+let release = 0.03; // Fast 30ms fade-out for OFF state to prevent clicks
             const effectiveSustain = this.isSustainOverrideDown ? 'LONG' : this.sustainLevel;
 
             if (effectiveSustain === 'LONG') release = 2.0;
             else if (effectiveSustain === 'SHORT') release = 0.5;
-            
+
             if (this.currentInstrument === 'string_ensemble_1' || this.currentInstrument === 'lead_1_square') {
                 if (effectiveSustain === 'SHORT') release = 1.0;
             }
@@ -473,14 +424,20 @@ class AudioEngine {
             try {
                 gain.gain.cancelScheduledValues(t);
                 gain.gain.setValueAtTime(gain.gain.value, t);
-                gain.gain.exponentialRampToValueAtTime(0.001, t + release);
+                
+                if (release <= 0.05) {
+                    gain.gain.linearRampToValueAtTime(0, t + release);
+                } else {
+                    gain.gain.exponentialRampToValueAtTime(0.001, t + release);
+                }
+                
                 source.stop(t + release);
-            } catch(e) {}
+            } catch(e) { console.warn('AudioEngine stopNote cleanup:', e); }
             
-            setTimeout(() => {
+            source.onended = () => {
                 source.disconnect();
                 gain.disconnect();
-            }, (when ? (when - this.ctx.currentTime) : 0) * 1000 + release * 1000 + 100);
+            };
 
             this.activeSources.delete(mapKey);
         }
@@ -494,10 +451,10 @@ class AudioEngine {
                 gain.gain.setValueAtTime(gain.gain.value, this.ctx!.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.001, this.ctx!.currentTime + 0.1);
                 source.stop(this.ctx!.currentTime + 0.1);
-                setTimeout(() => {
+                source.onended = () => {
                     source.disconnect();
                     gain.disconnect();
-                }, 150);
+                };
             } catch (e) {
                 console.warn('Error stopping note', e);
             }

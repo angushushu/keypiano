@@ -38,6 +38,39 @@ export const midiNumberToNote = (midi: number): string => {
     return `${name}${octave}`;
 };
 
+// Convert Note Name (C4) to MIDI Number (60)
+export const noteToMidi = (note: string): number => {
+    const match = note.match(/([A-G][#b]?)(-?\d+)/);
+    if (!match) return 60;
+    let name = match[1];
+    if (FLAT_TO_SHARP[name]) name = FLAT_TO_SHARP[name];
+    const octave = parseInt(match[2], 10);
+    const idx = NOTE_NAMES.indexOf(name);
+    return (octave + 1) * 12 + idx;
+};
+
+// --- JIANPU NOTATION ---
+
+const NOTE_TO_JIANPU_MAP: Record<string, string> = {
+  'C': '1', 'C#': '#1', 'Db': 'b2',
+  'D': '2', 'D#': '#2', 'Eb': 'b3',
+  'E': '3',
+  'F': '4', 'F#': '#4', 'Gb': 'b5',
+  'G': '5', 'G#': '#5', 'Ab': 'b6',
+  'A': '6', 'A#': '#6', 'Bb': 'b7',
+  'B': '7'
+};
+
+export const getJianpu = (note: string) => {
+  const match = note.match(/([A-G][#b]?)(-?\d+)/);
+  if (!match) return null;
+  const name = match[1];
+  const octave = parseInt(match[2], 10);
+  const number = NOTE_TO_JIANPU_MAP[name] || name;
+  const diff = octave - 4;
+  return { number, diff };
+};
+
 // --- KEYMAP DEFINITIONS ---
 
 // 1. FreePiano Default (Optimized for performance playing)
