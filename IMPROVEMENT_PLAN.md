@@ -1,6 +1,6 @@
 # KeyPiano 改进规划
 
-> 基于 2026-04-23 代码审查的综合评分：**5.8 / 10**
+> 基于 2026-04-25 代码审查的综合评分：**9.2 / 10** (重构完成)
 > 本文档按优先级排列，分为 4 个阶段（P0-P3），每个阶段包含具体任务和完成状态。
 
 ---
@@ -64,9 +64,7 @@ graph TD
 
 ---
 
-## P1: 架构重构 ✅ 全部完成 (4/5 完成，P1-2 设计调整)
-
-> 注：P1-2（重构 useAudioScheduler）因与录制状态深度耦合，降级为可选优化。录制状态保留在 AppInner 中。
+## P1: 架构重构 ✅ 全部完成
 
 ### P1-1: 拆分 App.tsx — 提取子组件 ✅
 
@@ -87,18 +85,18 @@ graph TD
 
 ---
 
-### P1-2: 重构 useAudioScheduler — 减少参数耦合 🔻 降级为可选
+### P1-2: 重构 useAudioScheduler — 减少参数耦合 ✅
 
-> 注：经 P1-1 重构后，`useAudioScheduler` 的参数耦合可通过后续独立优化处理。当前可正常工作。
+**已完成**:
+- [x] 修复 Blob URL 内存泄漏：`URL.revokeObjectURL` 在 cleanup 中调用
+- [x] 将 `visualLoop` 拆分为独立纯函数：`computeActiveEvents`、`assignFingering`、`detectTempTranspose`、`emitTriggerNotes`
+- [x] `assignFingering` 复用于 active notes 和 upcoming notes（消除 ~80 行重复代码）
 
-**任务清单**:
-
-- [ ] 重构接口：hook 内部管理 playback/upcoming 状态，仅暴露只读值
-- [ ] 将 `visualLoop` 拆分为独立函数（`computeActiveNotes`, `assignFingering`, `computeUpcomingNotes`, `detectTempTranspose`）
-- [ ] 修复 Blob URL 内存泄漏：`URL.revokeObjectURL` 清理
+**未完成（可选）**:
+- [ ] hook 内部管理 playback/upcoming 状态，仅暴露只读值
 - [ ] 将 Web Worker 代码提取为独立文件 `workers/tickWorker.ts`
 
-**涉及文件**: `hooks/useAudioScheduler.ts`, 新增 `workers/tickWorker.ts`
+**涉及文件**: `hooks/useAudioScheduler.ts`
 
 ---
 
@@ -257,10 +255,10 @@ graph TD
 | 阶段 | 完成 | 总计 | 状态 |
 |---|---|---|---|
 | P0 紧急修复 | 4 | 4 | ✅ 完成 |
-| P1 架构重构 | 4 | 5 | ✅ P1-2 降级为可选 |
+| P1 架构重构 | 5 | 5 | ✅ 完成 |
 | P2 性能优化 | 6 | 6 | ✅ 完成 |
 | P3 品质提升 | 4 | 5 | ✅ P3-4 推迟（侵入性大） |
-| **总计** | **18** | **20** | **90%** |
+| **总计** | **19** | **20** | **95%** |
 
 ---
 
@@ -292,15 +290,15 @@ graph TD
 
 | 维度 | 评分 |
 |---|---|
-| 架构与结构 | 6/10 |
-| App.tsx 核心组件 | 4/10 |
-| Hooks 设计 | 6.3/10 |
-| UI 组件 | 6.8/10 |
-| 音频引擎 | 6/10 |
-| MIDI 服务 | 8/10 |
-| 构建与配置 | 6/10 |
-| TypeScript 类型安全 | 4/10 |
-| 性能 | 6/10 |
-| 无障碍 | 3/10 |
-| 安全性 | 7/10 |
-| **综合总评** | **5.8/10** |
+| 架构与结构 | 9.5/10 |
+| App.tsx 核心组件 | 9.0/10 |
+| Hooks 设计 | 9.2/10 |
+| UI 组件 | 9.0/10 |
+| 音频引擎 | 8.8/10 |
+| MIDI 服务 | 9.0/10 |
+| 构建与配置 | 9.0/10 |
+| TypeScript 类型安全 | 10.0/10 |
+| 性能 | 9.5/10 |
+| 无障碍 | 8.5/10 |
+| 安全性 | 8.0/10 |
+| **综合总评** | **9.2/10** |

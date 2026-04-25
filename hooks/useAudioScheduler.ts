@@ -21,6 +21,98 @@ interface UseAudioSchedulerProps {
     elapsedTime: number;
 }
 
+// ─── Pure helper functions ──────────────────────────────────────
+
+function computeActiveEvents(events: RecordedEvent[], upToMs: number): Map<string, RecordedEvent> {
+    const map = new Map<string, RecordedEvent>();
+    for (const evt of events) {
+        if (evt.time > upToMs) break;
+        const key = evt.code || `${evt.note}_${evt.transpose}`;
+        if (evt.type === 'on') map.set(key, evt);
+        else map.delete(key);
+    }
+    return map;
+}
+
+function assignFingering(
+    events: Map<string, RecordedEvent>,
+    leftHandMap: Map<string, string>,
+    rightHandMap: Map<string, string>,
+    noteToKeyMap: Map<string, string>,
+): { activeKeys: Set<string>; activeNotes: Set<string> } {
+    const activeK = new Set<string>();
+    const activeN = new Set<string>();
+    const notesArray = Array.from(events.values());
+
+    const hasBlackKeys = notesArray.some(evt => evt.note.includes('#') || evt.note.includes('b'));
+    let rightHandCount = 0;
+
+    notesArray.sort((a, b) => a.note.localeCompare(b.note));
+
+    for (const evt of notesArray) {
+        const visualNote = getTransposedNote(evt.note, evt.transpose);
+        activeN.add(visualNote);
+
+        if (evt.code) {
+            activeK.add(evt.code);
+            continue;
+        }
+
+        const isBlackKey = evt.note.includes('#') || evt.note.includes('b');
+        let assignedCode: string | undefined;
+
+        if (isBlackKey) {
+            const baseNote = getTransposedNote(evt.note, -1);
+            const baseCode = leftHandMap.get(baseNote);
+            if (baseCode) {
+                assignedCode = baseCode;
+                activeK.add('ShiftLeft');
+            } else {
+                assignedCode = noteToKeyMap.get(evt.note);
+            }
+        } else {
+            const rightCode = rightHandMap.get(evt.note);
+            if (hasBlackKeys) {
+                if (rightCode && rightHandCount < 5) { assignedCode = rightCode; rightHandCount++; }
+                else assignedCode = leftHandMap.get(evt.note);
+            } else {
+                if (rightCode && rightHandCount < 5) { assignedCode = rightCode; rightHandCount++; }
+                else assignedCode = leftHandMap.get(evt.note) || noteToKeyMap.get(evt.note);
+            }
+        }
+        if (assignedCode) activeK.add(assignedCode);
+    }
+
+    return { activeKeys: activeK, activeNotes: activeN };
+}
+
+function detectTempTranspose(activeKeys: Set<string>): number {
+    if (activeKeys.has('ShiftLeft')) return 1;
+    if (activeKeys.has('ControlLeft')) return -1;
+    return 0;
+}
+
+function emitTriggerNotes(
+    events: RecordedEvent[],
+    fromIndex: number,
+    upToMs: number,
+    isPracticeMode: boolean,
+): { triggerNotes: { note: string; time: number; type: NoteType }[]; newIndex: number } {
+    const result: { note: string; time: number; type: NoteType }[] = [];
+    let i = fromIndex;
+    while (i < events.length && events[i].time <= upToMs) {
+        if (events[i].type === 'on') {
+            const evt = events[i];
+            const visualNote = getTransposedNote(evt.note, evt.transpose);
+            result.push({ note: visualNote, time: Date.now(), type: isPracticeMode ? 'practice' : 'user' });
+        }
+        i++;
+    }
+    return { triggerNotes: result, newIndex: i };
+}
+
+// ─── Main hook ──────────────────────────────────────────────────
+
 export function useAudioScheduler({
     recordingRef,
     isPracticeMode,
@@ -133,11 +225,15 @@ export function useAudioScheduler({
             };
         `;
         const blob = new Blob([workerCode], { type: 'application/javascript' });
-        workerRef.current = new Worker(URL.createObjectURL(blob));
+        const blobUrl = URL.createObjectURL(blob);
+        workerRef.current = new Worker(blobUrl);
         workerRef.current.onmessage = (e) => {
             if (e.data === 'tick') runAudioScheduler();
         };
-        return () => workerRef.current?.terminate();
+        return () => {
+            workerRef.current?.terminate();
+            URL.revokeObjectURL(blobUrl);
+        };
     }, []);
 
     const runAudioScheduler = () => {
@@ -192,138 +288,53 @@ export function useAudioScheduler({
         
         setElapsedTime(currentTrackTimeMs > 0 ? currentTrackTimeMs : 0);
         
-        const activeNotesMap = new Map<string, RecordedEvent>(); 
-        for(const evt of events) {
-            if (evt.time > currentTrackTimeMs) break;
-            const key = evt.code || `${evt.note}_${evt.transpose}`;
-            if (evt.type === 'on') activeNotesMap.set(key, evt);
-            else activeNotesMap.delete(key);
-        }
+        // 1. Compute active notes at current time
+        const activeNotesMap = computeActiveEvents(events, currentTrackTimeMs);
         
-        const activeK = new Set<string>();
-        const activeN = new Set<string>();
-        const notesArray = Array.from(activeNotesMap.values());
-        
-        const hasBlackKeys = notesArray.some(evt => evt.note.includes('#') || evt.note.includes('b'));
-        let rightHandFingerCount = 0; 
-        
-        notesArray.sort((a, b) => a.note.localeCompare(b.note));
+        // 2. Assign fingering
+        const { activeKeys, activeNotes } = assignFingering(
+            activeNotesMap, leftHandMap, rightHandMap, noteToKeyMap,
+        );
 
-        notesArray.forEach((evt) => {
-            const visualNote = getTransposedNote(evt.note, evt.transpose);
-            activeN.add(visualNote);
-            
-            if (evt.code) {
-               activeK.add(evt.code);
-            } else {
-               const isBlackKey = evt.note.includes('#') || evt.note.includes('b');
-               let assignedCode: string | undefined;
-
-               if (isBlackKey) {
-                   const baseNote = getTransposedNote(evt.note, -1);
-                   const baseCode = leftHandMap.get(baseNote);
-                   if (baseCode) {
-                       assignedCode = baseCode;
-                       activeK.add('ShiftLeft'); 
-                   } else {
-                       assignedCode = noteToKeyMap.get(evt.note);
-                   }
-               } else {
-                   if (hasBlackKeys) {
-                       const rightCode = rightHandMap.get(evt.note);
-                       if (rightCode && rightHandFingerCount < 5) {
-                           assignedCode = rightCode;
-                           rightHandFingerCount++;
-                       } else {
-                           assignedCode = leftHandMap.get(evt.note);
-                       }
-                   } else {
-                       const rightCode = rightHandMap.get(evt.note);
-                       if (rightCode && rightHandFingerCount < 5) {
-                           assignedCode = rightCode;
-                           rightHandFingerCount++;
-                       } else {
-                           assignedCode = leftHandMap.get(evt.note) || noteToKeyMap.get(evt.note);
-                       }
-                   }
-               }
-               if (assignedCode) activeK.add(assignedCode);
-            }
-        });
-
-        let modT = 0;
-        if (activeK.has('ShiftLeft')) modT = 1;
-        else if (activeK.has('ControlLeft')) modT = -1;
-        
+        // 3. Detect temp transpose
+        const modT = detectTempTranspose(activeKeys);
         if (modT !== playbackTempTransposeRef.current) {
             setPlaybackTempTranspose(modT);
             playbackTempTransposeRef.current = modT;
         }
 
+        // 4. Update playback visuals (only if changed)
         let changed = false;
-        if (activeK.size !== playbackKeysRef.current.size || activeN.size !== playbackNotesRef.current.size) changed = true;
+        if (activeKeys.size !== playbackKeysRef.current.size || activeNotes.size !== playbackNotesRef.current.size) changed = true;
         else {
-            for(const k of activeK) if (!playbackKeysRef.current.has(k)) { changed = true; break; }
+            for(const k of activeKeys) if (!playbackKeysRef.current.has(k)) { changed = true; break; }
             if (!changed) {
-                for(const n of activeN) if (!playbackNotesRef.current.has(n)) { changed = true; break; }
+                for(const n of activeNotes) if (!playbackNotesRef.current.has(n)) { changed = true; break; }
             }
         }
 
         if (changed) {
-            playbackKeysRef.current = activeK;
-            playbackNotesRef.current = activeN;
-            setPlaybackKeys(activeK);
-            setPlaybackNotes(activeN);
+            playbackKeysRef.current = activeKeys;
+            playbackNotesRef.current = activeNotes;
+            setPlaybackKeys(activeKeys);
+            setPlaybackNotes(activeNotes);
         }
 
-        // --- UPCOMING NOTES LOOKAHEAD (PRACTICE MODE) ---
+        // 5. Upcoming notes (practice mode)
         if (isPracticeModeRef.current) {
             const LOOKAHEAD_MS = 1500;
-            const upK = new Set<string>();
-            const upN = new Set<string>();
-            
             const upcomingMap = new Map<string, RecordedEvent>();
             for (const evt of events) {
-                if (evt.time > currentTrackTimeMs + LOOKAHEAD_MS) break; 
-                // Only consider events that haven't passed yet
+                if (evt.time > currentTrackTimeMs + LOOKAHEAD_MS) break;
                 if (evt.time >= currentTrackTimeMs) {
                     const key = evt.code || `${evt.note}_${evt.transpose}`;
                     if (evt.type === 'on') upcomingMap.set(key, evt);
                 }
             }
             
-            const upcomingArray = Array.from(upcomingMap.values());
-            upcomingArray.sort((a, b) => a.note.localeCompare(b.note));
-            let rHandCount = 0;
-            const hasBlack = upcomingArray.some(evt => evt.note.includes('#') || evt.note.includes('b'));
-
-            upcomingArray.forEach(evt => {
-                const visualNote = getTransposedNote(evt.note, evt.transpose);
-                upN.add(visualNote);
-                if (evt.code) { upK.add(evt.code); return; }
-
-                const isBlackKey = evt.note.includes('#') || evt.note.includes('b');
-                let assignedCode: string | undefined;
-
-                if (isBlackKey) {
-                    const baseNote = getTransposedNote(evt.note, -1);
-                    const baseCode = leftHandMap.get(baseNote);
-                    if (baseCode) {
-                        assignedCode = baseCode;
-                        upK.add('ShiftLeft'); 
-                    } else assignedCode = noteToKeyMap.get(evt.note);
-                } else {
-                    const rightCode = rightHandMap.get(evt.note);
-                    if (hasBlack) {
-                        if (rightCode && rHandCount < 5) { assignedCode = rightCode; rHandCount++; }
-                        else assignedCode = leftHandMap.get(evt.note);
-                    } else {
-                        if (rightCode && rHandCount < 5) { assignedCode = rightCode; rHandCount++; }
-                        else assignedCode = leftHandMap.get(evt.note) || noteToKeyMap.get(evt.note);
-                    }
-                }
-                if (assignedCode) upK.add(assignedCode);
-            });
+            const { activeKeys: upK, activeNotes: upN } = assignFingering(
+                upcomingMap, leftHandMap, rightHandMap, noteToKeyMap,
+            );
 
             let upChanged = false;
             if (upK.size !== upcomingKeysRef.current.size || upN.size !== upcomingNotesRef.current.size) upChanged = true;
@@ -341,7 +352,6 @@ export function useAudioScheduler({
                 setUpcomingNotes(upN);
             }
         } else {
-            // Clear upcoming if practice mode gets turned off mid-flight
             if (upcomingKeysRef.current.size > 0) {
                upcomingKeysRef.current = new Set();
                upcomingNotesRef.current = new Set();
@@ -350,21 +360,14 @@ export function useAudioScheduler({
             }
         }
 
-        const newTriggerNotes: {note: string, time: number, type: NoteType}[] = [];
-        let i = lastStaveIndexRef.current;
-        while(i < events.length && events[i].time <= currentTrackTimeMs) {
-            if (events[i].type === 'on') {
-                const evt = events[i];
-                const visualNote = getTransposedNote(evt.note, evt.transpose);
-                const type: NoteType = isPracticeModeRef.current ? 'practice' : 'user';
-                newTriggerNotes.push({ note: visualNote, time: Date.now(), type: type });
-            }
-            i++;
-        }
-        lastStaveIndexRef.current = i;
+        // 6. Emit stave trigger notes
+        const { triggerNotes: newTriggers, newIndex } = emitTriggerNotes(
+            events, lastStaveIndexRef.current, currentTrackTimeMs, isPracticeModeRef.current,
+        );
+        lastStaveIndexRef.current = newIndex;
         
-        if (newTriggerNotes.length > 0) {
-            setTriggerNotes(prev => [...prev, ...newTriggerNotes]);
+        if (newTriggers.length > 0) {
+            setTriggerNotes(prev => [...prev, ...newTriggers]);
         }
 
         if (workerRef.current) animFrameRef.current = requestAnimationFrame(visualLoop);

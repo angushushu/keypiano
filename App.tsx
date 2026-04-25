@@ -12,7 +12,7 @@ import InfoModal from './components/InfoModal';
 import StartScreen from './components/StartScreen';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { SynthProvider, useSynth } from './contexts/SynthContext';
-import { MetronomeProvider } from './contexts/MetronomeContext';
+import { MetronomeProvider, useMetronome } from './contexts/MetronomeContext';
 import { audioEngine, SustainLevel } from './services/audioEngine';
 import { generateMidiFile, parseMidiFile } from './services/midiIO';
 import {
@@ -36,10 +36,11 @@ const MAX_TRIGGER_NOTES = 500;
 const AppInner: React.FC = () => {
   const { theme, isLightTheme, isZenMode, setIsZenMode } = useSettings();
   const {
-    isAudioStarted, isLoading, currentInstrument, keyVelocity,
+    isAudioStarted, isLoading, currentInstrument, keyVelocity, setKeyVelocity,
     transposeBase, setTransposeBase, octaveShift, setOctaveShift,
     sustainLevel, cycleSustain, synthStateRef, toast, setToast,
   } = useSynth();
+  const { setIsMetronomeOn } = useMetronome();
 
   // View state
   const [mainView, setMainView] = useState<'stave' | 'keyboard' | 'waterfall'>('keyboard');
@@ -191,9 +192,9 @@ const AppInner: React.FC = () => {
       'F2': () => setOctaveShift(o => Math.min(3, o + 1)),
       'F3': () => setTransposeBase(t => t - 1),
       'F4': () => setTransposeBase(t => t + 1),
-      'F5': () => {},
-      'F6': () => {},
-      'F7': () => {},
+      'F5': () => setKeyVelocity(Math.max(0, keyVelocity - 10)),
+      'F6': () => setKeyVelocity(Math.min(127, keyVelocity + 10)),
+      'F7': () => setIsMetronomeOn(prev => !prev),
       'F8': () => setMainView(prev => prev === 'stave' ? 'keyboard' : 'stave'),
       'F9': togglePlayback,
       'F10': () => toggleRecording(),
