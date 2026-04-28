@@ -24,9 +24,9 @@ const InfoModal: React.FC<InfoModalProps> = ({ show, onClose }) => {
           <p className="text-xs text-current opacity-60 mb-4">{t.mobileHint}</p>
           <div className={`border-t pt-4 mt-2 flex flex-col gap-2 ${theme.panelBorder}`}>
             <div className="text-[10px] font-bold text-current opacity-60 uppercase tracking-wider mb-1">{t.relatedProjects}</div>
-            <a href="https://github.com/angushushu/keypiano" target="_blank" className="flex items-center gap-2 text-current hover:text-yellow-500 transition-colors text-xs font-medium"><Github className="w-3.5 h-3.5" /> <span>{t.sourceCode}</span></a>
-            <a href="https://github.com/angushushu/freepyano" target="_blank" className="flex items-center gap-2 text-current hover:text-yellow-500 transition-colors text-xs font-medium"><Github className="w-3.5 h-3.5" /> <span>{t.desktopRemake}</span></a>
-            <a href="https://freepiano.tiwb.com/" target="_blank" className="flex items-center gap-2 text-current hover:text-yellow-500 transition-colors text-xs font-medium"><Globe className="w-3.5 h-3.5" /> <span>{t.originalSite}</span></a>
+            <a href="https://github.com/angushushu/keypiano" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-current hover:text-yellow-500 transition-colors text-xs font-medium"><Github className="w-3.5 h-3.5" /> <span>{t.sourceCode}</span></a>
+            <a href="https://github.com/angushushu/freepyano" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-current hover:text-yellow-500 transition-colors text-xs font-medium"><Github className="w-3.5 h-3.5" /> <span>{t.desktopRemake}</span></a>
+            <a href="https://freepiano.tiwb.com/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-current hover:text-yellow-500 transition-colors text-xs font-medium"><Globe className="w-3.5 h-3.5" /> <span>{t.originalSite}</span></a>
           </div>
         </div>
       </div>

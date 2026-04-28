@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import VirtualKey from './components/VirtualKey';
 import PianoKeyboard from './components/PianoKeyboard';
-import StaveVisualizer, { NoteType } from './components/StaveVisualizer';
+import StaveVisualizer from './components/StaveVisualizer';
 import WaterfallVisualizer from './components/WaterfallVisualizer';
 import LandscapePrompt from './components/LandscapePrompt';
 import Toast from './components/Toast';
@@ -22,7 +22,7 @@ import {
   KeymapID
 } from './constants';
 import { Minimize } from 'lucide-react';
-import { RecordedEvent } from './types';
+import { TriggerNote } from './types';
 import { useMidiDevice } from './hooks/useMidiDevice';
 import { useAudioScheduler } from './hooks/useAudioScheduler';
 import { useKeyboardInput } from './hooks/useKeyboardInput';
@@ -33,8 +33,18 @@ import { useRecordingState } from './hooks/useRecordingState';
 
 const MAX_TRIGGER_NOTES = 500;
 
+const isInteractiveTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return (
+    target.isContentEditable ||
+    ['input', 'textarea', 'select', 'button'].includes(tagName) ||
+    target.closest('[contenteditable="true"], input, textarea, select, button') !== null
+  );
+};
+
 const AppInner: React.FC = () => {
-  const { theme, isLightTheme, isZenMode, setIsZenMode } = useSettings();
+  const { theme, t, isZenMode, setIsZenMode } = useSettings();
   const {
     isAudioStarted, isLoading, currentInstrument, keyVelocity, setKeyVelocity,
     transposeBase, setTransposeBase, octaveShift, setOctaveShift,
@@ -69,8 +79,8 @@ const AppInner: React.FC = () => {
   } = useRecordingState();
 
   // Visualization state
-  const [triggerNotes, setTriggerNotesRaw] = useState<{ note: string; time: number; type: NoteType }[]>([]);
-  const setTriggerNotes = useCallback((updater: (prev: { note: string; time: number; type: NoteType }[]) => { note: string; time: number; type: NoteType }[]) => {
+  const [triggerNotes, setTriggerNotesRaw] = useState<TriggerNote[]>([]);
+  const setTriggerNotes = useCallback((updater: (prev: TriggerNote[]) => TriggerNote[]) => {
     setTriggerNotesRaw(prev => {
       const next = updater(prev);
       return next.length > MAX_TRIGGER_NOTES ? next.slice(next.length - MAX_TRIGGER_NOTES) : next;
@@ -200,7 +210,7 @@ const AppInner: React.FC = () => {
       'F10': () => toggleRecording(),
       'F11': () => stopAndReset(),
       'F12': () => { setTransposeBase(0); setOctaveShift(0); audioEngine.stopAllNotes(); },
-      'Coffee': () => window.open('https://paypal.me/angushushu', '_blank')
+      'Coffee': () => window.open('https://paypal.me/angushushu', '_blank', 'noopener,noreferrer')
     };
     if ((isRecording || isPlayingBack) && ['F1', 'F2', 'F3', 'F4'].includes(code)) return;
     if (actions[code]) actions[code]();
@@ -234,8 +244,18 @@ const AppInner: React.FC = () => {
 
   // Window event listeners (registered once)
   useEffect(() => {
-    const onKeyD = (e: KeyboardEvent) => { if (e.repeat) return; if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'ControlLeft' || e.code === 'ControlRight') e.preventDefault(); else if (currentKeyMapRef.current[e.code] || e.code.startsWith('F') || ['Tab', 'Quote', 'Slash', 'Space'].includes(e.code)) e.preventDefault(); handleKeyDownRef.current(e as globalThis.KeyboardEvent); playNoteByCodeRef.current(e.code); };
-    const onKeyU = (e: KeyboardEvent) => { handleKeyUpRef.current(e as globalThis.KeyboardEvent); stopNoteByCodeRef.current(e.code); };
+    const onKeyD = (e: KeyboardEvent) => {
+      if (e.repeat || isInteractiveTarget(e.target)) return;
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'ControlLeft' || e.code === 'ControlRight') e.preventDefault();
+      else if (currentKeyMapRef.current[e.code] || e.code.startsWith('F') || ['Tab', 'Quote', 'Slash', 'Space'].includes(e.code)) e.preventDefault();
+      handleKeyDownRef.current(e as globalThis.KeyboardEvent);
+      playNoteByCodeRef.current(e.code);
+    };
+    const onKeyU = (e: KeyboardEvent) => {
+      if (isInteractiveTarget(e.target)) return;
+      handleKeyUpRef.current(e as globalThis.KeyboardEvent);
+      stopNoteByCodeRef.current(e.code);
+    };
     const handleBlur = () => { activeKeysRef.current.forEach(code => stopNoteByCodeRef.current(code)); setActiveMouseNotes(new Set()); };
     window.addEventListener('keydown', onKeyD); window.addEventListener('keyup', onKeyU); window.addEventListener('blur', handleBlur);
     return () => { window.removeEventListener('keydown', onKeyD); window.removeEventListener('keyup', onKeyU); window.removeEventListener('blur', handleBlur); };
@@ -266,7 +286,7 @@ const AppInner: React.FC = () => {
   return (
     <div className={`h-screen w-screen ${theme.appBg} flex flex-col overflow-hidden font-sans select-none relative transition-colors duration-300`}>
       <input type="file" ref={fileInputRef} accept=".mid,.midi" onChange={handleFileChange} className="hidden" />
-      {isPortraitMobile && <LandscapePrompt title="" message="" />}
+      {isPortraitMobile && <LandscapePrompt title={t.landscape.title} message={t.landscape.message} />}
 
       {toast && <Toast message={toast.message} variant={toast.variant} onDismiss={() => setToast(null)} />}
 

@@ -4,6 +4,7 @@
 declare global {
     interface Window {
         webkitAudioContext: typeof AudioContext;
+        adsbygoogle?: Array<Record<string, unknown>>;
     }
 
     namespace WebMidi {

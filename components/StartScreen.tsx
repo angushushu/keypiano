@@ -2,8 +2,12 @@ import React from 'react';
 import { Activity, Loader2, Music } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { useSynth } from '../contexts/SynthContext';
-import { INSTRUMENTS } from '../services/audioEngine';
+import { INSTRUMENTS, InstrumentID } from '../services/audioEngine';
 import { KeyPianoLogo } from './KeyPianoLogo';
+
+const isInstrumentID = (value: string): value is InstrumentID => (
+  INSTRUMENTS.some(inst => inst.id === value)
+);
 
 const StartScreen: React.FC = () => {
   const { theme, themeId, t } = useSettings();
@@ -27,7 +31,10 @@ const StartScreen: React.FC = () => {
             <div className={`flex flex-col gap-4 w-full ${themeId === 'light' ? 'bg-white border-gray-200' : 'bg-[#27272a] border-[#3f3f46]'} p-6 rounded-xl border`}>
               <div className="space-y-2">
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2"><Music className="w-3 h-3" /> {t.selectSound}</label>
-                <select value={selectedStartInstrument} onChange={(e) => setSelectedStartInstrument(e.target.value as any)} className={`w-full ${themeId === 'light' ? 'bg-gray-100 text-black border-gray-300' : 'bg-[#18181b] text-white border-[#3f3f46]'} p-3 rounded-lg border focus:border-yellow-500 outline-none`}>
+                <select value={selectedStartInstrument} onChange={(e) => {
+                  const value = e.target.value;
+                  if (isInstrumentID(value)) setSelectedStartInstrument(value);
+                }} className={`w-full ${themeId === 'light' ? 'bg-gray-100 text-black border-gray-300' : 'bg-[#18181b] text-white border-[#3f3f46]'} p-3 rounded-lg border focus:border-yellow-500 outline-none`}>
                   {INSTRUMENTS.map(inst => (<option key={inst.id} value={inst.id}>{(t.instruments)[inst.id] || inst.name} {inst.type === 'gm' ? t.instruments.gm_suffix : t.instruments.custom_suffix}</option>))}
                 </select>
               </div>

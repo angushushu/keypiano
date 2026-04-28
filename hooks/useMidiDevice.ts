@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { audioEngine, InstrumentID } from '../services/audioEngine';
 import { midiNumberToNote } from '../constants';
-import { RecordedEvent } from '../types'; // Extracted types will live here
+import { RecordedEvent, TriggerNote } from '../types';
 
 interface UseMidiDeviceProps {
     currentInstrument: InstrumentID;
     isRecording: boolean;
     recordingStartTime: number;
     addRecordingEvent: (evt: RecordedEvent) => void;
-    setTriggerNotes: (updater: (prev: any[]) => any[]) => void;
+    setTriggerNotes: (updater: (prev: TriggerNote[]) => TriggerNote[]) => void;
     setActiveMidiNotes: (updater: (prev: Set<string>) => Set<string>) => void;
 }
 
@@ -54,8 +54,6 @@ export function useMidiDevice({
 
             const [status, data1, data2] = data;
             const command = status & 0xf0;
-            const channel = status & 0x0f;
-
             // Note On / Off (Commands 144 / 128)
             if (command === 144 || command === 128) {
                 const noteNum = data1;
@@ -121,7 +119,7 @@ export function useMidiDevice({
         const listener = (e: WebMidi.MIDIMessageEvent) => handleMidiMessageRef.current(e);
 
         const inputs = Array.from(midiAccess.inputs.values());
-        inputs.forEach((input: any) => {
+        inputs.forEach((input) => {
             input.onmidimessage = listener;
         });
 
@@ -129,15 +127,15 @@ export function useMidiDevice({
             const port = e.port as WebMidi.MIDIInput;
             if (port.type === 'input') {
                 if (port.state === 'connected') {
-                    (port as any).onmidimessage = listener;
+                    (port as WebMidi.MIDIInput).onmidimessage = listener;
                 } else {
-                    (port as any).onmidimessage = null;
+                    (port as WebMidi.MIDIInput).onmidimessage = null;
                 }
             }
         };
         
         return () => {
-            inputs.forEach((input: any) => input.onmidimessage = null);
+            inputs.forEach((input) => input.onmidimessage = null);
         };
     }, [midiAccess]);
 

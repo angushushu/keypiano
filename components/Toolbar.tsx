@@ -7,10 +7,14 @@ import {
 import { useSettings } from '../contexts/SettingsContext';
 import { useSynth } from '../contexts/SynthContext';
 import { useMetronome } from '../contexts/MetronomeContext';
-import { INSTRUMENTS, InstrumentID } from '../services/audioEngine';
+import { INSTRUMENTS, InstrumentID, MetronomeSound } from '../services/audioEngine';
 import { KeyPianoLogo } from './KeyPianoLogo';
 
 const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5];
+
+const isInstrumentID = (value: string): value is InstrumentID => (
+  INSTRUMENTS.some(inst => inst.id === value)
+);
 
 const formatTime = (ms: number) => {
   const totalSeconds = Math.floor(ms / 1000);
@@ -63,6 +67,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const { theme, t, isLightTheme, setIsZenMode } = useSettings();
   const { currentInstrument, handleInstrumentChange, masterVolume, setMasterVolume, isAudioStarted, isLoading } = useSynth();
   const { isMetronomeOn, setIsMetronomeOn, bpm, setBpm, metronomeSound, setMetronomeSound, METRONOME_SOUNDS } = useMetronome();
+  const isMetronomeSound = (value: string): value is MetronomeSound => (
+    METRONOME_SOUNDS.some(sound => sound.id === value)
+  );
 
   return (
     <div className={`${theme.toolbarBg} ${theme.toolbarBorder} flex flex-col md:flex-row md:items-center border-b shadow-md z-40 shrink-0 transition-colors duration-300 relative`}>
@@ -86,7 +93,10 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <Music className="w-4 h-4 text-blue-400" />
           <select
             value={currentInstrument}
-            onChange={(e) => handleInstrumentChange(e.target.value as InstrumentID)}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (isInstrumentID(value)) handleInstrumentChange(value);
+            }}
             disabled={!isAudioStarted || isLoading}
             className="bg-transparent text-white text-xs py-1 outline-none cursor-pointer disabled:opacity-50 max-w-[120px] md:max-w-none"
             style={{ color: theme.id === 'light' ? 'black' : 'white' }}
@@ -123,7 +133,10 @@ const Toolbar: React.FC<ToolbarProps> = ({
               <span className="text-[10px] text-gray-500 font-bold font-mono">{t.controls.bpm}</span>
               <input type="number" min="40" max="240" value={bpm} onChange={(e) => setBpm(Math.max(40, Math.min(240, parseInt(e.target.value) || 120)))}
                 className={`text-[10px] w-10 text-center rounded border outline-none ${isLightTheme ? 'bg-gray-200 text-black border-gray-300' : 'bg-black/50 text-white border-gray-700'}`} />
-              <select value={metronomeSound} onChange={(e) => setMetronomeSound(e.target.value as any)} className={`text-[10px] h-4 ml-1 rounded outline-none border cursor-pointer ${isLightTheme ? 'bg-gray-100 text-black border-gray-300' : 'bg-black text-gray-300 border-gray-600'}`}>
+              <select value={metronomeSound} onChange={(e) => {
+                const value = e.target.value;
+                if (isMetronomeSound(value)) setMetronomeSound(value);
+              }} className={`text-[10px] h-4 ml-1 rounded outline-none border cursor-pointer ${isLightTheme ? 'bg-gray-100 text-black border-gray-300' : 'bg-black text-gray-300 border-gray-600'}`}>
                 {METRONOME_SOUNDS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             </div>

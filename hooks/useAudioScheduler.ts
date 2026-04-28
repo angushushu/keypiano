@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { audioEngine } from '../services/audioEngine';
-import { RecordedEvent } from '../types';
+import { RecordedEvent, TriggerNote } from '../types';
 import { getTransposedNote } from '../constants';
-import { NoteType } from '../components/StaveVisualizer';
 
 interface UseAudioSchedulerProps {
     recordingRef: React.MutableRefObject<RecordedEvent[]>;
@@ -13,7 +12,7 @@ interface UseAudioSchedulerProps {
     noteToKeyMap: Map<string, string>;
     setPlaybackKeys: (keys: Set<string>) => void;
     setPlaybackNotes: (notes: Set<string>) => void;
-    setTriggerNotes: (updater: (prev: any[]) => any[]) => void;
+    setTriggerNotes: (updater: (prev: TriggerNote[]) => TriggerNote[]) => void;
     setPlaybackTempTranspose: (transpose: number) => void;
     setUpcomingKeys: (keys: Set<string>) => void;
     setUpcomingNotes: (notes: Set<string>) => void;
@@ -97,8 +96,8 @@ function emitTriggerNotes(
     fromIndex: number,
     upToMs: number,
     isPracticeMode: boolean,
-): { triggerNotes: { note: string; time: number; type: NoteType }[]; newIndex: number } {
-    const result: { note: string; time: number; type: NoteType }[] = [];
+): { triggerNotes: TriggerNote[]; newIndex: number } {
+    const result: TriggerNote[] = [];
     let i = fromIndex;
     while (i < events.length && events[i].time <= upToMs) {
         if (events[i].type === 'on') {

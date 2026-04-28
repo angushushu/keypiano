@@ -151,18 +151,18 @@ export const KEY_TO_NOTE = MAP_FREEPIANO;
 
 // FULL KEYBOARD ROW DEFINITIONS (Layout Visuals)
 export const FULL_ROW_0: KeyDef[] = [
-  { code: 'Escape', label: 'Esc', customLabel: 'SU' }, 
+  { code: 'Escape', label: 'Esc', customLabel: 'SU', description: 'Cycle sustain level' }, 
   { code: 'dummy_0_1', label: '', width: 1, isDummy: true },
-  { code: 'F1', label: 'F1', customLabel: 'OC-' }, { code: 'F2', label: 'F2', customLabel: 'OC+' }, 
-  { code: 'F3', label: 'F3', customLabel: 'KS-' }, { code: 'F4', label: 'F4', customLabel: 'KS+' },
+  { code: 'F1', label: 'F1', customLabel: 'OC-', description: 'Octave down' }, { code: 'F2', label: 'F2', customLabel: 'OC+', description: 'Octave up' }, 
+  { code: 'F3', label: 'F3', customLabel: 'KS-', description: 'Transpose down' }, { code: 'F4', label: 'F4', customLabel: 'KS+', description: 'Transpose up' },
   { code: 'dummy_0_2', label: '', width: 0.5, isDummy: true },
-  { code: 'F5', label: 'F5', customLabel: 'V-' }, { code: 'F6', label: 'F6', customLabel: 'V+' }, 
-  { code: 'F7', label: 'F7', customLabel: 'Metro' }, { code: 'F8', label: 'F8', customLabel: 'View' },
+  { code: 'F5', label: 'F5', customLabel: 'V-', description: 'Keyboard velocity down' }, { code: 'F6', label: 'F6', customLabel: 'V+', description: 'Keyboard velocity up' }, 
+  { code: 'F7', label: 'F7', customLabel: 'Metro', description: 'Toggle metronome' }, { code: 'F8', label: 'F8', customLabel: 'View', description: 'Toggle stave and keyboard view' },
   { code: 'dummy_0_3', label: '', width: 0.5, isDummy: true },
-  { code: 'F9', label: 'F9', customLabel: 'Play' }, 
-  { code: 'F10', label: 'F10', customLabel: 'Rec' }, 
-  { code: 'F11', label: 'F11', customLabel: 'Stop' }, 
-  { code: 'F12', label: 'F12', customLabel: 'Rst' },
+  { code: 'F9', label: 'F9', customLabel: 'Play', description: 'Play or pause recording' }, 
+  { code: 'F10', label: 'F10', customLabel: 'Rec', description: 'Start or stop recording' }, 
+  { code: 'F11', label: 'F11', customLabel: 'Stop', description: 'Stop playback and reset position' }, 
+  { code: 'F12', label: 'F12', customLabel: 'Rst', description: 'Reset transpose and octave' },
   // Alignment fix: Gap between Main block and Nav block (0.5u)
   { code: 'dummy_0_4', label: '', width: 0.5, isDummy: true },
   // Nav Block area (3u) - currently empty placeholder
@@ -170,7 +170,7 @@ export const FULL_ROW_0: KeyDef[] = [
   // Gap between Nav block and Numpad (0.5u)
   { code: 'dummy_0_6', label: '', width: 0.5, isDummy: true },
   // Numpad area (4u) - Coffee Button
-  { code: 'Coffee', label: 'Support', customLabel: '☕ Buy me a Coffee', width: 4 }, 
+  { code: 'Coffee', label: 'Support', customLabel: '☕ Buy me a Coffee', description: 'Open support link', width: 4 }, 
 ];
 
 export const FULL_ROW_1: KeyDef[] = [
@@ -198,7 +198,7 @@ export const FULL_ROW_3: KeyDef[] = [
 ];
 
 export const FULL_ROW_4: KeyDef[] = [
-  { code: 'ShiftLeft', label: '', customLabel: '#L', width: 2.25, isModifier: true }, { code: 'KeyZ', label: 'Z' }, { code: 'KeyX', label: 'X' }, { code: 'KeyC', label: 'C' }, { code: 'KeyV', label: 'V' }, { code: 'KeyB', label: 'B' }, { code: 'KeyN', label: 'N' }, { code: 'KeyM', label: 'M' }, { code: 'Comma', label: ',' }, { code: 'Period', label: '.' }, { code: 'Slash', label: '/' }, { code: 'ShiftRight', label: 'Shift', width: 2.75 },
+  { code: 'ShiftLeft', label: '', customLabel: '#L', description: 'Raise left-hand notes by one semitone while held', width: 2.25, isModifier: true }, { code: 'KeyZ', label: 'Z' }, { code: 'KeyX', label: 'X' }, { code: 'KeyC', label: 'C' }, { code: 'KeyV', label: 'V' }, { code: 'KeyB', label: 'B' }, { code: 'KeyN', label: 'N' }, { code: 'KeyM', label: 'M' }, { code: 'Comma', label: ',' }, { code: 'Period', label: '.' }, { code: 'Slash', label: '/' }, { code: 'ShiftRight', label: 'Shift', description: 'Mapped performance key', width: 2.75 },
   { code: 'dummy_4_1', label: '', width: 0.5, isDummy: true },
   { code: 'dummy_4_2', label: '', width: 1, isDummy: true }, { code: 'ArrowUp', label: '↑' }, { code: 'dummy_4_3', label: '', width: 1, isDummy: true },
   { code: 'dummy_4_4', label: '', width: 0.5, isDummy: true },
@@ -206,7 +206,7 @@ export const FULL_ROW_4: KeyDef[] = [
 ];
 
 export const FULL_ROW_5: KeyDef[] = [
-  { code: 'ControlLeft', label: '', customLabel: 'bL', width: 1.25, isModifier: true }, { code: 'MetaLeft', label: 'Win', width: 1.25, isDummy: true }, { code: 'AltLeft', label: 'Alt', width: 1.25, isDummy: true }, { code: 'Space', label: 'KeyPiano', width: 6.25 }, { code: 'AltRight', label: 'Alt', width: 1.25, isDummy: true }, { code: 'MetaRight', label: 'Win', width: 1.25, isDummy: true }, { code: 'ContextMenu', label: 'Menu', width: 1.25, isDummy: true }, { code: 'ControlRight', label: 'Ctrl', width: 1.25, isDummy: true },
+  { code: 'ControlLeft', label: '', customLabel: 'bL', description: 'Lower left-hand notes by one semitone while held', width: 1.25, isModifier: true }, { code: 'MetaLeft', label: 'Win', width: 1.25, isDummy: true }, { code: 'AltLeft', label: 'Alt', width: 1.25, isDummy: true }, { code: 'Space', label: 'KeyPiano', description: 'Play mapped spacebar note', width: 6.25 }, { code: 'AltRight', label: 'Alt', width: 1.25, isDummy: true }, { code: 'MetaRight', label: 'Win', width: 1.25, isDummy: true }, { code: 'ContextMenu', label: 'Menu', width: 1.25, isDummy: true }, { code: 'ControlRight', label: 'Ctrl', width: 1.25, isDummy: true },
   { code: 'dummy_5_1', label: '', width: 0.5, isDummy: true },
   { code: 'ArrowLeft', label: '←' }, { code: 'ArrowDown', label: '↓' }, { code: 'ArrowRight', label: '→' },
   { code: 'dummy_5_2', label: '', width: 0.5, isDummy: true },

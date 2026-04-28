@@ -1,15 +1,8 @@
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Theme } from '../theme';
 import StaveBackgroundSVG, { STAVE_VB_X, STAVE_VB_W, STAVE_VB_H, STAVE_VB_Y } from './StaveBackgroundSVG';
-
-export type NoteType = 'user' | 'practice';
-
-interface TriggerNote {
-    note: string;
-    time: number;
-    type: NoteType;
-}
+import { NoteType, TriggerNote } from '../types';
 
 interface StaveVisualizerProps {
     triggerNotes: TriggerNote[]; 
@@ -87,13 +80,19 @@ const StaveVisualizer: React.FC<StaveVisualizerProps> = ({ triggerNotes, theme }
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const binsRef = useRef<NoteBin[]>([]);
+    const processedNotesRef = useRef<WeakSet<TriggerNote>>(new WeakSet());
     const rafRef = useRef<number | null>(null);
     
     // --- Bin Logic ---
     useEffect(() => {
         if (!triggerNotes || triggerNotes.length === 0) return;
 
-        triggerNotes.forEach(latestNote => {
+        const newNotes = triggerNotes.filter(note => !processedNotesRef.current.has(note));
+        if (newNotes.length === 0) return;
+
+        newNotes.forEach(latestNote => {
+            processedNotesRef.current.add(latestNote);
+
             const now = latestNote.time;
             const noteName = latestNote.note;
             const noteType = latestNote.type;

@@ -13,7 +13,8 @@ const AdBanner: React.FC = () => {
         const timer = setTimeout(() => {
             try {
                 if (typeof window !== 'undefined') {
-                    ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+                    window.adsbygoogle = window.adsbygoogle || [];
+                    window.adsbygoogle.push({});
                     adInitialized.current = true;
                 }
             } catch (err) {

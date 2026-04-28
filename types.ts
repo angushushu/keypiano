@@ -3,6 +3,7 @@ import { InstrumentID } from './services/audioEngine';
 export interface KeyDef {
   code: string;
   label: string;
+  description?: string;
   customLabel?: string;
   width?: number;
   height?: number;
@@ -18,4 +19,12 @@ export interface RecordedEvent {
   transpose: number;
   instrumentId: InstrumentID;
   velocity?: number;
+}
+
+export type NoteType = 'user' | 'practice';
+
+export interface TriggerNote {
+  note: string;
+  time: number;
+  type: NoteType;
 }

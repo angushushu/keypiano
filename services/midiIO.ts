@@ -1,7 +1,6 @@
 
 import { Midi } from '@tonejs/midi';
-import { InstrumentID } from './audioEngine';
-import { NOTE_NAMES, noteToMidi, midiNumberToNote, FLAT_TO_SHARP } from '../constants';
+import { noteToMidi } from '../constants';
 import { RecordedEvent } from '../types';
 
 // --- IMPORT FUNCTION ---
@@ -51,7 +50,7 @@ export function generateMidiFile(events: RecordedEvent[]): Blob {
     const midi = new Midi();
     const track = midi.addTrack();
 
-    const pendingNotes: Record<number, { startTime: number, velocity: number }> = {};
+    const pendingNotes: Record<number, { startTime: number, velocity: number }[]> = {};
 
     const sortedEvents = [...events].sort((a, b) => a.time - b.time);
 
@@ -59,17 +58,17 @@ export function generateMidiFile(events: RecordedEvent[]): Blob {
         const rawMidi = noteToMidi(evt.note);
         const finalMidi = rawMidi + evt.transpose;
         const clampedMidi = Math.max(0, Math.min(127, finalMidi));
-        const finalNoteName = midiNumberToNote(clampedMidi);
 
         const key = finalMidi;
 
         if (evt.type === 'on') {
-            pendingNotes[key] = {
+            if (!pendingNotes[key]) pendingNotes[key] = [];
+            pendingNotes[key].push({
                 startTime: evt.time / 1000,
                 velocity: (evt.velocity || 80) / 127
-            };
+            });
         } else if (evt.type === 'off') {
-            const pending = pendingNotes[key];
+            const pending = pendingNotes[key]?.shift();
             if (pending) {
                 const endTime = evt.time / 1000;
                 let duration = endTime - pending.startTime;
@@ -87,9 +86,29 @@ export function generateMidiFile(events: RecordedEvent[]): Blob {
                     console.warn("Skipping invalid note export", e);
                 }
 
-                delete pendingNotes[key];
+                if (pendingNotes[key].length === 0) delete pendingNotes[key];
+            } else {
+                console.warn("Skipping unmatched note-off during MIDI export", evt);
             }
         }
+    });
+
+    const lastEventSec = sortedEvents.length > 0 ? sortedEvents[sortedEvents.length - 1].time / 1000 : 0;
+    Object.entries(pendingNotes).forEach(([midiKey, pendingQueue]) => {
+        const midi = Math.max(0, Math.min(127, parseInt(midiKey, 10)));
+        pendingQueue.forEach(pending => {
+            const duration = Math.max(0.05, lastEventSec - pending.startTime || 0.5);
+            try {
+                track.addNote({
+                    midi,
+                    time: pending.startTime,
+                    duration,
+                    velocity: pending.velocity
+                });
+            } catch (e) {
+                console.warn("Skipping unterminated note export", e);
+            }
+        });
     });
 
     const array = midi.toArray();

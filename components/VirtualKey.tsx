@@ -7,6 +7,7 @@ import { getJianpu } from '../constants';
 interface VirtualKeyProps {
   label: string;
   code: string;
+  description?: string;
   note?: string; 
   width?: number; // 1u = 4 grid units
   height?: number; // 1 row = 1 grid row (unless spanning)
@@ -25,6 +26,7 @@ interface VirtualKeyProps {
 const VirtualKey: React.FC<VirtualKeyProps> = ({ 
   label, 
   code, 
+  description,
   note, 
   width = 1, 
   height = 1,
@@ -39,6 +41,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
 }) => {
   const mappedNote = note;
   const displayLabel = customLabel || label;
+  const accessibleLabel = mappedNote ? `Play note ${mappedNote}` : (description || displayLabel);
   const jianpu = mappedNote ? getJianpu(mappedNote) : null;
 
   // GRID UNIT LOGIC
@@ -131,10 +134,11 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
         className={`${baseClasses} ${stateClass}`}
         style={style}
         role="button"
-        aria-label={mappedNote ? `Play note ${mappedNote}` : displayLabel}
+        aria-label={accessibleLabel}
         aria-pressed={isActive || isPlaybackActive || false}
         aria-disabled={isDummy || false}
         tabIndex={isDummy ? -1 : 0}
+        title={description}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave} 
