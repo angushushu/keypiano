@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { audioEngine, InstrumentID } from '../services/audioEngine';
 import { midiNumberToNote } from '../constants';
 import { RecordedEvent, TriggerNote } from '../types';
@@ -20,27 +20,41 @@ export function useMidiDevice({
     setTriggerNotes,
     setActiveMidiNotes
 }: UseMidiDeviceProps) {
+    const getMidiRequest = () => Reflect.get(navigator, 'requestMIDIAccess') as
+        (() => Promise<WebMidi.MIDIAccess>) | undefined;
     const [midiAccess, setMidiAccess] = useState<WebMidi.MIDIAccess | null>(null);
     const [isSustainPedalDown, setIsSustainPedalDown] = useState(false);
+    const [midiStatus, setMidiStatus] = useState<'idle' | 'requesting' | 'connected' | 'denied' | 'unsupported'>(
+        getMidiRequest() ? 'idle' : 'unsupported'
+    );
+    const [midiInputCount, setMidiInputCount] = useState(0);
 
     // Refs for stale closure prevention
     const recordingStartTimeRef = useRef(recordingStartTime);
     const currentInstrumentRef = useRef(currentInstrument);
     const isRecordingRef = useRef(isRecording);
+    const midiNoteCountsRef = useRef(new Map<string, number>());
 
     useEffect(() => { recordingStartTimeRef.current = recordingStartTime; }, [recordingStartTime]);
     useEffect(() => { currentInstrumentRef.current = currentInstrument; }, [currentInstrument]);
     useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
 
-    // Request MIDI Access
-    useEffect(() => {
-        if (navigator.requestMIDIAccess) {
-            navigator.requestMIDIAccess().then(
-                (ma) => {
-                    setMidiAccess(ma);
-                },
-                (err) => console.warn('Web MIDI API access denied or not supported.', err)
-            );
+    const requestMidiAccess = useCallback(async () => {
+        const midiRequest = getMidiRequest();
+        if (!midiRequest) {
+            setMidiStatus('unsupported');
+            return;
+        }
+
+        setMidiStatus('requesting');
+        try {
+            const access = await midiRequest.call(navigator);
+            setMidiAccess(access);
+            setMidiInputCount(access.inputs.size);
+            setMidiStatus('connected');
+        } catch (error) {
+            console.warn('Web MIDI API access denied.', error);
+            setMidiStatus('denied');
         }
     }, []);
 
@@ -63,6 +77,7 @@ export function useMidiDevice({
                 // Note On
                 if (command === 144 && velocity > 0) {
                     audioEngine.playNote(noteName, 0, velocity); 
+                    midiNoteCountsRef.current.set(noteName, (midiNoteCountsRef.current.get(noteName) ?? 0) + 1);
                     setActiveMidiNotes(prev => new Set(prev).add(noteName));
                     setTriggerNotes(prev => [...prev, { note: noteName, time: Date.now(), type: 'user' }]);
             
@@ -80,9 +95,12 @@ export function useMidiDevice({
                 // Note Off
                 else if (command === 128 || (command === 144 && velocity === 0)) {
                     audioEngine.stopNote(noteName, 0);
+                    const remainingCount = Math.max(0, (midiNoteCountsRef.current.get(noteName) ?? 1) - 1);
+                    if (remainingCount > 0) midiNoteCountsRef.current.set(noteName, remainingCount);
+                    else midiNoteCountsRef.current.delete(noteName);
                     setActiveMidiNotes(prev => {
                         const s = new Set(prev);
-                        s.delete(noteName);
+                        if (remainingCount === 0) s.delete(noteName);
                         return s;
                     });
                     
@@ -112,6 +130,16 @@ export function useMidiDevice({
         };
     }, [addRecordingEvent, setActiveMidiNotes, setTriggerNotes]);
 
+    const releaseAllMidiNotes = useCallback(() => {
+        midiNoteCountsRef.current.forEach((count, noteName) => {
+            for (let index = 0; index < count; index++) audioEngine.stopNote(noteName, 0);
+        });
+        midiNoteCountsRef.current.clear();
+        setActiveMidiNotes(() => new Set());
+        setIsSustainPedalDown(false);
+        audioEngine.overrideSustain(false);
+    }, [setActiveMidiNotes]);
+
     // Attach listeners
     useEffect(() => {
         if (!midiAccess) return;
@@ -130,16 +158,23 @@ export function useMidiDevice({
                     (port as WebMidi.MIDIInput).onmidimessage = listener;
                 } else {
                     (port as WebMidi.MIDIInput).onmidimessage = null;
+                    releaseAllMidiNotes();
                 }
+                setMidiInputCount(midiAccess.inputs.size);
             }
         };
         
         return () => {
             inputs.forEach((input) => input.onmidimessage = null);
+            midiAccess.onstatechange = null;
+            releaseAllMidiNotes();
         };
-    }, [midiAccess]);
+    }, [midiAccess, releaseAllMidiNotes]);
 
     return {
-        isSustainPedalDown
+        isSustainPedalDown,
+        midiStatus,
+        midiInputCount,
+        requestMidiAccess,
     };
 }

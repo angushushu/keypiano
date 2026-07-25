@@ -34,11 +34,20 @@ export default defineConfig({
         theme_color: '#18181b',
         background_color: '#18181b',
         display: 'standalone',
+        start_url: './',
+        scope: './',
         icons: [
           {
             src: 'favicon.svg',
-            sizes: '192x192',
-            type: 'image/svg+xml'
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any'
+          },
+          {
+            src: 'icon-maskable.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'maskable'
           }
         ]
       }

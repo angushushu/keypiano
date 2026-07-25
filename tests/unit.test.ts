@@ -3,6 +3,8 @@ import { Midi } from '@tonejs/midi';
 import { generateMidiFile } from '../services/midiIO';
 import { getJianpu, getTransposedNote, midiNumberToNote, noteToMidi } from '../constants';
 import { RecordedEvent } from '../types';
+import { computeActiveEvents } from '../hooks/useAudioScheduler';
+import { initialRecordingState, recordingReducer } from '../hooks/useRecordingState';
 
 type TestCase = {
   name: string;
@@ -52,6 +54,37 @@ test('generateMidiFile preserves overlapping notes of the same pitch', async () 
   assert.equal(notes.length, 2);
   assert.deepEqual(notes.map(note => Math.round(note.time * 1000)), [0, 100]);
   assert.deepEqual(notes.map(note => Math.round(note.duration * 1000)), [300, 400]);
+});
+
+test('playback state preserves overlapping note instances until matching note-offs', () => {
+  const events: RecordedEvent[] = [
+    { time: 0, type: 'on', note: 'C4', transpose: 0, instrumentId: 'salamander' },
+    { time: 100, type: 'on', note: 'C4', transpose: 0, instrumentId: 'salamander' },
+    { time: 300, type: 'off', note: 'C4', transpose: 0, instrumentId: 'salamander' },
+    { time: 500, type: 'off', note: 'C4', transpose: 0, instrumentId: 'salamander' },
+  ];
+
+  assert.equal(computeActiveEvents(events, 150).size, 2);
+  assert.equal(computeActiveEvents(events, 350).size, 1);
+  assert.equal(computeActiveEvents(events, 550).size, 0);
+});
+
+test('loading MIDI events always exits recording mode and resets the timer', () => {
+  const recording = {
+    ...initialRecordingState,
+    isRecording: true,
+    recordingStartTime: 123,
+    elapsedTime: 456,
+  };
+  const events: RecordedEvent[] = [
+    { time: 0, type: 'on', note: 'A4', transpose: 0, instrumentId: 'salamander' },
+  ];
+
+  const next = recordingReducer(recording, { type: 'SET_EVENTS', events });
+  assert.equal(next.isRecording, false);
+  assert.equal(next.recordingStartTime, 0);
+  assert.equal(next.elapsedTime, 0);
+  assert.equal(next.recordedEvents, events);
 });
 
 for (const { name, run } of tests) {

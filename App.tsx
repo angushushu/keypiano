@@ -13,13 +13,11 @@ import StartScreen from './components/StartScreen';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { SynthProvider, useSynth } from './contexts/SynthContext';
 import { MetronomeProvider, useMetronome } from './contexts/MetronomeContext';
-import { audioEngine, SustainLevel } from './services/audioEngine';
+import { audioEngine } from './services/audioEngine';
 import { generateMidiFile, parseMidiFile } from './services/midiIO';
 import {
   ALL_ROWS,
-  getTransposedNote,
-  KEYMAP_PRESETS,
-  KeymapID
+  getTransposedNote
 } from './constants';
 import { Minimize } from 'lucide-react';
 import { TriggerNote } from './types';
@@ -39,16 +37,16 @@ const isInteractiveTarget = (target: EventTarget | null): boolean => {
   return (
     target.isContentEditable ||
     ['input', 'textarea', 'select', 'button'].includes(tagName) ||
-    target.closest('[contenteditable="true"], input, textarea, select, button') !== null
+    target.closest('[contenteditable="true"], input, textarea, select, button, [role="button"]') !== null
   );
 };
 
 const AppInner: React.FC = () => {
   const { theme, t, isZenMode, setIsZenMode } = useSettings();
   const {
-    isAudioStarted, isLoading, currentInstrument, keyVelocity, setKeyVelocity,
+    isAudioStarted, currentInstrument, keyVelocity, setKeyVelocity,
     transposeBase, setTransposeBase, octaveShift, setOctaveShift,
-    sustainLevel, cycleSustain, synthStateRef, toast, setToast,
+    cycleSustain, synthStateRef, toast, setToast,
   } = useSynth();
   const { setIsMetronomeOn } = useMetronome();
 
@@ -66,7 +64,10 @@ const AppInner: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const infoButtonRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const closeSettings = useCallback(() => setShowSettings(false), []);
+  const closeInfo = useCallback(() => setShowInfo(false), []);
 
   // Recording state (useReducer-based)
   const {
@@ -113,7 +114,35 @@ const AppInner: React.FC = () => {
   }, [showSettings]);
 
   // Keyboard hook
-  const { activeKeys, setActiveKeys, keymapId, setKeymapId, currentKeyMap, tempTranspose, handleKeyDown, handleKeyUp, getEffectiveTranspose, activeKeysRef } = useKeyboardInput('freepiano');
+  const {
+    activeKeys, setActiveKeys, keymapId, setKeymapId, currentKeyMap, tempTranspose,
+    handleKeyDown, handleKeyUp, getEffectiveTranspose, activeKeysRef, resetKeyboardState,
+  } = useKeyboardInput('freepiano');
+  const focusableVirtualCodes = useMemo(
+    () => Array.from(new Set(ALL_ROWS.flat().filter(key => !key.isDummy).map(key => key.code))),
+    []
+  );
+  const [focusedVirtualKeyCode, setFocusedVirtualKeyCode] = useState(focusableVirtualCodes[0] ?? '');
+  const virtualKeyRefs = useRef(new Map<string, HTMLDivElement>());
+  const registerVirtualKeyRef = useCallback((code: string, element: HTMLDivElement | null) => {
+    if (element) virtualKeyRefs.current.set(code, element);
+    else virtualKeyRefs.current.delete(code);
+  }, []);
+  const moveVirtualKeyFocus = useCallback((
+    code: string,
+    direction: 'previous' | 'next' | 'first' | 'last'
+  ) => {
+    const currentIndex = focusableVirtualCodes.indexOf(code);
+    let nextIndex = currentIndex;
+    if (direction === 'previous') nextIndex = Math.max(0, currentIndex - 1);
+    if (direction === 'next') nextIndex = Math.min(focusableVirtualCodes.length - 1, currentIndex + 1);
+    if (direction === 'first') nextIndex = 0;
+    if (direction === 'last') nextIndex = focusableVirtualCodes.length - 1;
+    const nextCode = focusableVirtualCodes[nextIndex];
+    if (!nextCode) return;
+    setFocusedVirtualKeyCode(nextCode);
+    requestAnimationFrame(() => virtualKeyRefs.current.get(nextCode)?.focus());
+  }, [focusableVirtualCodes]);
 
   // Fingering maps
   const { leftHandMap, rightHandMap, noteToKeyMap } = useMemo(() => {
@@ -139,7 +168,7 @@ const AppInner: React.FC = () => {
   });
 
   // MIDI device hook
-  const { isSustainPedalDown } = useMidiDevice({
+  const { isSustainPedalDown, midiStatus, midiInputCount, requestMidiAccess } = useMidiDevice({
     currentInstrument, isRecording, recordingStartTime,
     addRecordingEvent, setTriggerNotes, setActiveMidiNotes,
   });
@@ -157,11 +186,13 @@ const AppInner: React.FC = () => {
 
   // ─── NOTE ACTIONS ────────────────────────────────────────────
   const activeKeyParamsRef = useRef<Map<string, { note: string; transpose: number }>>(new Map());
+  const activeMouseNotesRef = useRef<Set<string>>(new Set());
 
   const playNoteByCode = useCallback((code: string) => {
     if (['Escape', 'Coffee'].includes(code) || code.startsWith('F')) handleFunctionKey(code);
     const note = currentKeyMap[code];
     if (note) {
+      if (activeKeyParamsRef.current.has(code)) return;
       const effectiveTranspose = getEffectiveTranspose(code);
       const totalTranspose = synthStateRef.current.transposeBase + (synthStateRef.current.octaveShift * 12) + effectiveTranspose;
       const vel = Math.min(127, Math.max(0, keyVelocity));
@@ -184,15 +215,46 @@ const AppInner: React.FC = () => {
       if (isRecording) {
         recordingRef.current.push({ time: Date.now() - recordingStartTime, type: 'off', note: activeParams.note, code, transpose: activeParams.transpose, instrumentId: currentInstrument });
       }
-    } else {
-      const note = currentKeyMap[code];
-      if (note) audioEngine.stopNote(note, synthStateRef.current.transposeBase + (synthStateRef.current.octaveShift * 12));
     }
     setActiveKeys(prev => { const n = new Set(prev); n.delete(code); return n; });
-  }, [isRecording, recordingStartTime, currentInstrument, currentKeyMap, synthStateRef, setActiveKeys]);
+  }, [isRecording, recordingStartTime, currentInstrument, setActiveKeys]);
 
-  const playNoteByName = useCallback((noteName: string) => { audioEngine.playNote(noteName, 0, keyVelocity); setTriggerNotes(prev => [...prev, { note: noteName, time: Date.now(), type: 'user' }]); setActiveMouseNotes(prev => new Set(prev).add(noteName)); }, [keyVelocity, setTriggerNotes]);
-  const stopNoteByName = useCallback((noteName: string) => { audioEngine.stopNote(noteName, 0); setActiveMouseNotes(prev => { const s = new Set(prev); s.delete(noteName); return s; }); }, []);
+  const playNoteByName = useCallback((noteName: string) => {
+    if (activeMouseNotesRef.current.has(noteName)) return;
+    activeMouseNotesRef.current.add(noteName);
+    const velocity = Math.min(127, Math.max(0, keyVelocity));
+    audioEngine.playNote(noteName, 0, velocity);
+    setTriggerNotes(prev => [...prev, { note: noteName, time: Date.now(), type: 'user' }]);
+    setActiveMouseNotes(new Set(activeMouseNotesRef.current));
+    if (isRecording) {
+      recordingRef.current.push({
+        time: Date.now() - recordingStartTime,
+        type: 'on',
+        note: noteName,
+        code: `Piano:${noteName}`,
+        transpose: 0,
+        instrumentId: currentInstrument,
+        velocity,
+      });
+    }
+  }, [currentInstrument, isRecording, keyVelocity, recordingRef, recordingStartTime, setTriggerNotes]);
+
+  const stopNoteByName = useCallback((noteName: string) => {
+    if (!activeMouseNotesRef.current.has(noteName)) return;
+    activeMouseNotesRef.current.delete(noteName);
+    audioEngine.stopNote(noteName, 0);
+    setActiveMouseNotes(new Set(activeMouseNotesRef.current));
+    if (isRecording) {
+      recordingRef.current.push({
+        time: Date.now() - recordingStartTime,
+        type: 'off',
+        note: noteName,
+        code: `Piano:${noteName}`,
+        transpose: 0,
+        instrumentId: currentInstrument,
+      });
+    }
+  }, [currentInstrument, isRecording, recordingRef, recordingStartTime]);
 
   // Function key handler
   const handleFunctionKey = (code: string) => {
@@ -235,12 +297,25 @@ const AppInner: React.FC = () => {
   const stopNoteByCodeRef = useRef(stopNoteByCode);
   const handleKeyDownRef = useRef(handleKeyDown);
   const handleKeyUpRef = useRef(handleKeyUp);
+  const stopNoteByNameRef = useRef(stopNoteByName);
   const currentKeyMapRef = useRef(currentKeyMap);
   useEffect(() => { playNoteByCodeRef.current = playNoteByCode; }, [playNoteByCode]);
   useEffect(() => { stopNoteByCodeRef.current = stopNoteByCode; }, [stopNoteByCode]);
   useEffect(() => { handleKeyDownRef.current = handleKeyDown; }, [handleKeyDown]);
   useEffect(() => { handleKeyUpRef.current = handleKeyUp; }, [handleKeyUp]);
+  useEffect(() => { stopNoteByNameRef.current = stopNoteByName; }, [stopNoteByName]);
   useEffect(() => { currentKeyMapRef.current = currentKeyMap; }, [currentKeyMap]);
+
+  useEffect(() => {
+    if (!isPortraitMobile) return;
+    [...activeKeyParamsRef.current.keys()].forEach(code => stopNoteByCodeRef.current(code));
+    [...activeMouseNotesRef.current].forEach(note => stopNoteByNameRef.current(note));
+    audioEngine.stopAllNotes();
+    audioEngine.overrideSustain(false);
+    resetKeyboardState();
+    setActiveMouseNotes(new Set());
+    setActiveMidiNotes(new Set());
+  }, [isPortraitMobile, resetKeyboardState]);
 
   // Window event listeners (registered once)
   useEffect(() => {
@@ -252,15 +327,26 @@ const AppInner: React.FC = () => {
       playNoteByCodeRef.current(e.code);
     };
     const onKeyU = (e: KeyboardEvent) => {
-      if (isInteractiveTarget(e.target)) return;
+      const wasPlaying = activeKeyParamsRef.current.has(e.code) || activeKeysRef.current.has(e.code);
+      if (isInteractiveTarget(e.target) && !wasPlaying) return;
       handleKeyUpRef.current(e as globalThis.KeyboardEvent);
       stopNoteByCodeRef.current(e.code);
     };
-    const handleBlur = () => { activeKeysRef.current.forEach(code => stopNoteByCodeRef.current(code)); setActiveMouseNotes(new Set()); };
+    const handleBlur = () => {
+      [...activeKeyParamsRef.current.keys()].forEach(code => stopNoteByCodeRef.current(code));
+      [...activeMouseNotesRef.current].forEach(note => stopNoteByNameRef.current(note));
+      audioEngine.stopAllNotes();
+      audioEngine.overrideSustain(false);
+      activeKeyParamsRef.current.clear();
+      activeMouseNotesRef.current.clear();
+      resetKeyboardState();
+      setActiveMouseNotes(new Set());
+      setActiveMidiNotes(new Set());
+    };
     window.addEventListener('keydown', onKeyD); window.addEventListener('keyup', onKeyU); window.addEventListener('blur', handleBlur);
     return () => { window.removeEventListener('keydown', onKeyD); window.removeEventListener('keyup', onKeyU); window.removeEventListener('blur', handleBlur); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeKeysRef, resetKeyboardState]);
 
   // MIDI file handlers
   const handleExportMidi = useCallback(() => {
@@ -273,25 +359,45 @@ const AppInner: React.FC = () => {
 
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
+    if (isRecording) {
+      setToast({ message: t.errors.importDuringRecording, variant: 'warning' });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
     try {
       const events = parseMidiFile(await file.arrayBuffer());
       loadMidiEvents(events, pausePlayback);
     } catch {
-      setToast({ message: 'Failed to parse MIDI file.', variant: 'error' });
+      setToast({ message: t.errors.midiParseFailed, variant: 'error' });
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
-  }, [pausePlayback, loadMidiEvents, setToast]);
+  }, [isRecording, pausePlayback, loadMidiEvents, setToast, t.errors.importDuringRecording, t.errors.midiParseFailed]);
 
   // ─── RENDER ──────────────────────────────────────────────────
+  if (isPortraitMobile) {
+    return (
+      <div className={`h-screen w-screen ${theme.appBg}`}>
+        <LandscapePrompt title={t.landscape.title} message={t.landscape.message} />
+      </div>
+    );
+  }
+
+  if (!isAudioStarted) {
+    return (
+      <div className={`h-screen w-screen ${theme.appBg}`}>
+        {toast && <Toast message={toast.message} variant={toast.variant} onDismiss={() => setToast(null)} />}
+        <StartScreen />
+      </div>
+    );
+  }
+
   return (
     <div className={`h-screen w-screen ${theme.appBg} flex flex-col overflow-hidden font-sans select-none relative transition-colors duration-300`}>
       <input type="file" ref={fileInputRef} accept=".mid,.midi" onChange={handleFileChange} className="hidden" />
-      {isPortraitMobile && <LandscapePrompt title={t.landscape.title} message={t.landscape.message} />}
-
       {toast && <Toast message={toast.message} variant={toast.variant} onDismiss={() => setToast(null)} />}
 
       {isZenMode && (
-        <button onClick={() => setIsZenMode(false)} className="absolute top-4 right-4 z-50 p-2 bg-black/50 text-white/50 hover:text-white rounded hover:bg-black/70 transition-colors backdrop-blur-md" title="Exit Zen Mode">
+        <button onClick={() => setIsZenMode(false)} className="absolute top-4 right-4 z-50 p-2 bg-black/50 text-white/50 hover:text-white rounded hover:bg-black/70 transition-colors backdrop-blur-md" title={t.exitZenMode} aria-label={t.exitZenMode}>
           <Minimize className="w-6 h-6" />
         </button>
       )}
@@ -308,11 +414,21 @@ const AppInner: React.FC = () => {
           isSustainPedalDown={isSustainPedalDown} isLgUp={isLgUp}
           onImportMidi={() => fileInputRef.current?.click()} onExportMidi={handleExportMidi}
           setShowInfo={setShowInfo} setShowSettings={setShowSettings} showSettings={showSettings}
-          settingsButtonRef={settingsButtonRef}
+          settingsButtonRef={settingsButtonRef} infoButtonRef={infoButtonRef}
         />
       )}
 
-      <SettingsPanel show={showSettings} onClose={() => setShowSettings(false)} panelRef={settingsRef} keymapId={keymapId} setKeymapId={setKeymapId} />
+      <SettingsPanel
+        show={showSettings}
+        onClose={closeSettings}
+        panelRef={settingsRef}
+        keymapId={keymapId}
+        setKeymapId={setKeymapId}
+        settingsButtonRef={settingsButtonRef}
+        midiStatus={midiStatus}
+        midiInputCount={midiInputCount}
+        requestMidiAccess={requestMidiAccess}
+      />
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col relative overflow-hidden">
@@ -333,10 +449,13 @@ const AppInner: React.FC = () => {
                     }
                     return (
                       <VirtualKey key={k.code + idx} {...k} note={displayedNote}
-                        customLabel={k.code === 'Coffee' ? '☕ Buy me a Coffee' : k.customLabel}
+                        customLabel={k.code === 'Coffee' ? t.buyCoffee : k.customLabel}
                         isActive={activeKeys.has(k.code) || (!isPracticeMode && playbackKeys.has(k.code)) || (k.code === 'ShiftLeft' && (tempTranspose !== 0 ? tempTranspose : (isPlayingBack ? playbackTempTranspose : 0)) === 1) || (k.code === 'ControlLeft' && (tempTranspose !== 0 ? tempTranspose : (isPlayingBack ? playbackTempTranspose : 0)) === -1)}
                         isPlaybackActive={isPracticeMode && playbackKeys.has(k.code)} isUpcoming={isPracticeMode && upcomingKeys.has(k.code)}
                         onMouseDown={playNoteByCode} onMouseUp={stopNoteByCode} theme={theme}
+                        isTabStop={focusedVirtualKeyCode === k.code}
+                        onMoveFocus={moveVirtualKeyFocus}
+                        registerKeyRef={registerVirtualKeyRef}
                       />
                     );
                   })}
@@ -356,11 +475,11 @@ const AppInner: React.FC = () => {
 
       {!isZenMode && showPiano && (
         <div className={`${theme.pianoBg} p-1 flex flex-col gap-1 shadow-[0_-5px_15px_rgba(0,0,0,0.5)] z-20 shrink-0 transition-all`} style={{ height: `${pianoHeight}px` }}>
-          <PianoKeyboard activeNotes={pianoVisualNotes} playbackNotes={isPracticeMode ? playbackNotes : new Set()} upcomingNotes={isPracticeMode ? upcomingNotes : new Set()} onPlayNote={playNoteByName} onStopNote={stopNoteByName} theme={theme} />
+          <PianoKeyboard activeNotes={pianoVisualNotes} playbackNotes={isPracticeMode ? playbackNotes : new Set()} upcomingNotes={isPracticeMode ? upcomingNotes : new Set()} onPlayNote={playNoteByName} onStopNote={stopNoteByName} theme={theme} ariaLabel={t.pianoKeyboard} />
         </div>
       )}
 
-      <InfoModal show={showInfo} onClose={() => setShowInfo(false)} />
+      <InfoModal show={showInfo} onClose={closeInfo} returnFocusRef={infoButtonRef} />
       <StartScreen />
     </div>
   );

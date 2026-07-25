@@ -57,12 +57,21 @@ const GM_BASE = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/';
 
 export type SustainLevel = 'OFF' | 'SHORT' | 'LONG';
 
+interface ActiveSource {
+    source: AudioBufferSourceNode;
+    gain: GainNode;
+    instrumentId: InstrumentID;
+}
+
 class AudioEngine {
     private ctx: AudioContext | null = null;
     private masterGain: GainNode | null = null;
     private compressor: DynamicsCompressorNode | null = null;
     private buffers: Map<string, AudioBuffer> = new Map();
-    private activeSources: Map<string, { source: AudioBufferSourceNode, gain: GainNode }> = new Map();
+    private activeSources: Map<string, ActiveSource[]> = new Map();
+    private liveSources = new Set<ActiveSource>();
+    private loadGeneration = 0;
+    private loadAbortController: AbortController | null = null;
     
     public isLoaded = false;
     public networkErrors: string[] = [];
@@ -229,17 +238,24 @@ class AudioEngine {
     }
 
     private async loadInstrument(instrumentId: InstrumentID) {
+        const generation = ++this.loadGeneration;
+        this.loadAbortController?.abort();
+        const controller = new AbortController();
+        this.loadAbortController = controller;
+
         this.isLoaded = false;
-        this.buffers.clear(); 
+        this.stopAllNotes();
+        this.buffers.clear();
+        this.networkErrors = [];
         this.currentInstrument = instrumentId;
 
         const instDef = INSTRUMENTS.find(i => i.id === instrumentId);
-        if (!instDef) return;
+        if (!instDef) throw new Error(`Unknown instrument: ${instrumentId}`);
 
         if (instrumentId === 'salamander') {
-            await this.loadSamples(SALAMANDER_BASE, SALAMANDER_MAP);
+            await this.loadSamples(SALAMANDER_BASE, SALAMANDER_MAP, generation, controller.signal);
         } else if (instrumentId === 'hq_piano') {
-            await this.loadSamples(HQ_PIANO_BASE, HQ_PIANO_MAP);
+            await this.loadSamples(HQ_PIANO_BASE, HQ_PIANO_MAP, generation, controller.signal);
         } else {
             // GM Logic
             const map: Record<string, string> = {};
@@ -248,10 +264,12 @@ class AudioEngine {
                 map[this.midiToStandard(i)] = `${noteName}.mp3`;
             }
             if (!map['C4']) map['C4'] = 'C4.mp3';
-            await this.loadSamples(`${GM_BASE}${instrumentId}-mp3/`, map);
+            await this.loadSamples(`${GM_BASE}${instrumentId}-mp3/`, map, generation, controller.signal);
         }
 
-        this.isLoaded = true;
+        if (generation === this.loadGeneration && !controller.signal.aborted) {
+            this.isLoaded = true;
+        }
     }
 
     private midiToStandard(midi: number): string {
@@ -267,8 +285,12 @@ class AudioEngine {
         return `${name}${oct}`;
     }
 
-    private async loadSamples(baseUrl: string, map: Record<string, string>) {
-        this.networkErrors = [];
+    private async loadSamples(
+        baseUrl: string,
+        map: Record<string, string>,
+        generation: number,
+        signal: AbortSignal
+    ) {
         const entries = Object.entries(map);
 
         // Priority notes for immediate start (middle octaves)
@@ -286,17 +308,20 @@ class AudioEngine {
             return Promise.all(list.map(async ([note, file]) => {
                 try {
                     const url = `${baseUrl}${file}`;
-                    const response = await fetch(url);
+                    const response = await fetch(url, { signal });
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const arrayBuffer = await response.arrayBuffer();
 
-                    if (this.ctx) {
+                    if (this.ctx && generation === this.loadGeneration && !signal.aborted) {
                         const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
-                        this.buffers.set(note, audioBuffer);
+                        if (generation === this.loadGeneration && !signal.aborted) {
+                            this.buffers.set(note, audioBuffer);
+                        }
                     }
                 } catch (e) {
+                    if (signal.aborted || (e instanceof DOMException && e.name === 'AbortError')) return;
                     console.warn(`Failed to open sample ${file}:`, e);
-                    this.networkErrors.push(note);
+                    if (generation === this.loadGeneration) this.networkErrors.push(note);
                 }
             }));
         };
@@ -307,10 +332,12 @@ class AudioEngine {
         // Fire and forget the rest in the background to unblock initialization
         if (backgroundEntries.length > 0) {
             fetchSubset(backgroundEntries).then(() => {
-                if (this.networkErrors.length > 0) {
+                if (generation === this.loadGeneration && this.networkErrors.length > 0) {
                     console.warn(`${this.networkErrors.length} background samples failed to load`);
                 }
-            }).catch(console.error);
+            }).catch((error) => {
+                if (!signal.aborted) console.error(error);
+            });
         }
     }
 
@@ -370,10 +397,6 @@ class AudioEngine {
         if (when === 0) this.resumeIfSuspended();
 
         const mapKey = `${note}_${transpose}`;
-        
-        if (when === 0) {
-            this.stopNote(note, transpose); 
-        }
 
         const baseMidi = this.getNoteNumber(note);
         if (baseMidi === 0) return;
@@ -400,24 +423,40 @@ class AudioEngine {
         const startTime = when || this.ctx.currentTime;
         source.start(startTime);
 
-        this.activeSources.set(mapKey, { source, gain });
+        const active = { source, gain, instrumentId: this.currentInstrument };
+        const queue = this.activeSources.get(mapKey) ?? [];
+        queue.push(active);
+        this.activeSources.set(mapKey, queue);
+        this.liveSources.add(active);
+
+        source.onended = () => {
+            source.disconnect();
+            gain.disconnect();
+            this.liveSources.delete(active);
+            const currentQueue = this.activeSources.get(mapKey);
+            if (!currentQueue) return;
+            const nextQueue = currentQueue.filter(entry => entry.source !== source);
+            if (nextQueue.length > 0) this.activeSources.set(mapKey, nextQueue);
+            else this.activeSources.delete(mapKey);
+        };
     }
 
     public stopNote(note: string, transpose: number = 0, when: number = 0) {
         const mapKey = `${note}_${transpose}`;
-        const active = this.activeSources.get(mapKey);
+        const queue = this.activeSources.get(mapKey);
+        const active = queue?.shift();
         
         if (active && this.ctx) {
-            const { source, gain } = active;
+            const { source, gain, instrumentId } = active;
             const t = when || this.ctx.currentTime;
             
-let release = 0.03; // Fast 30ms fade-out for OFF state to prevent clicks
+            let release = 0.03; // Fast 30ms fade-out for OFF state to prevent clicks
             const effectiveSustain = this.isSustainOverrideDown ? 'LONG' : this.sustainLevel;
 
             if (effectiveSustain === 'LONG') release = 2.0;
             else if (effectiveSustain === 'SHORT') release = 0.5;
 
-            if (this.currentInstrument === 'string_ensemble_1' || this.currentInstrument === 'lead_1_square') {
+            if (instrumentId === 'string_ensemble_1' || instrumentId === 'lead_1_square') {
                 if (effectiveSustain === 'SHORT') release = 1.0;
             }
 
@@ -434,32 +473,25 @@ let release = 0.03; // Fast 30ms fade-out for OFF state to prevent clicks
                 source.stop(t + release);
             } catch(e) { console.warn('AudioEngine stopNote cleanup:', e); }
             
-            source.onended = () => {
-                source.disconnect();
-                gain.disconnect();
-            };
-
-            this.activeSources.delete(mapKey);
+            if (queue && queue.length > 0) this.activeSources.set(mapKey, queue);
+            else this.activeSources.delete(mapKey);
         }
     }
 
     public stopAllNotes() {
         if (!this.ctx) return;
-        this.activeSources.forEach(({ source, gain }) => {
+        this.liveSources.forEach(({ source, gain }) => {
             try {
                 gain.gain.cancelScheduledValues(this.ctx!.currentTime);
                 gain.gain.setValueAtTime(gain.gain.value, this.ctx!.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.001, this.ctx!.currentTime + 0.1);
                 source.stop(this.ctx!.currentTime + 0.1);
-                source.onended = () => {
-                    source.disconnect();
-                    gain.disconnect();
-                };
             } catch (e) {
                 console.warn('Error stopping note', e);
             }
         });
         this.activeSources.clear();
+        this.liveSources.clear();
     }
 }
 

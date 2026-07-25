@@ -15,23 +15,29 @@ const StartScreen: React.FC = () => {
 
   if (!isAudioStarted) {
     return (
-      <div className={`absolute inset-0 z-50 flex flex-col items-center justify-center ${theme.appBg} p-4 transition-colors duration-300`}>
+      <div
+        className={`fixed inset-0 z-50 flex flex-col items-center justify-center ${theme.appBg} p-4 transition-colors duration-300`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="start-screen-title"
+        aria-describedby="start-screen-description"
+      >
         <div className="flex flex-col items-center max-w-md w-full gap-8">
           <div className="flex flex-col items-center gap-2">
             <div className="p-4 bg-yellow-500/10 rounded-full mb-2"><KeyPianoLogo className="w-16 h-16 text-yellow-500" /></div>
-            <h1 className={`text-3xl font-bold ${themeId === 'light' ? 'text-black' : 'text-white'} tracking-tight`}>{t.title}</h1>
-            <p className="text-gray-400 text-center">{t.description}</p>
+            <h1 id="start-screen-title" className={`text-3xl font-bold ${themeId === 'light' ? 'text-black' : 'text-white'} tracking-tight`}>{t.title}</h1>
+            <p id="start-screen-description" className="text-gray-400 text-center">{t.description}</p>
           </div>
           {isLoading ? (
-            <div className={`flex flex-col items-center gap-4 ${themeId === 'light' ? 'bg-white border-gray-200' : 'bg-[#27272a] border-[#3f3f46]'} p-8 rounded-xl w-full border`}>
+            <div aria-live="polite" className={`flex flex-col items-center gap-4 ${themeId === 'light' ? 'bg-white border-gray-200' : 'bg-[#27272a] border-[#3f3f46]'} p-8 rounded-xl w-full border`}>
               <Loader2 className="w-10 h-10 text-yellow-500 animate-spin" />
               <p className={`${themeId === 'light' ? 'text-black' : 'text-white'} font-medium`}>{t.loading}</p>
             </div>
           ) : (
             <div className={`flex flex-col gap-4 w-full ${themeId === 'light' ? 'bg-white border-gray-200' : 'bg-[#27272a] border-[#3f3f46]'} p-6 rounded-xl border`}>
               <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2"><Music className="w-3 h-3" /> {t.selectSound}</label>
-                <select value={selectedStartInstrument} onChange={(e) => {
+                <label htmlFor="start-instrument-select" className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2"><Music className="w-3 h-3" /> {t.selectSound}</label>
+                <select id="start-instrument-select" value={selectedStartInstrument} onChange={(e) => {
                   const value = e.target.value;
                   if (isInstrumentID(value)) setSelectedStartInstrument(value);
                 }} className={`w-full ${themeId === 'light' ? 'bg-gray-100 text-black border-gray-300' : 'bg-[#18181b] text-white border-[#3f3f46]'} p-3 rounded-lg border focus:border-yellow-500 outline-none`}>
@@ -51,7 +57,7 @@ const StartScreen: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm"><Loader2 className="w-10 h-10 text-yellow-500 animate-spin" /></div>
+      <div role="status" aria-label={t.loading} className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm"><Loader2 className="w-10 h-10 text-yellow-500 animate-spin" /></div>
     );
   }
 

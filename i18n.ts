@@ -30,6 +30,28 @@ interface TranslationSet {
   togglePiano: string;
   practiceMode: string;
   speed: string;
+  close: string;
+  openToolbar: string;
+  closeToolbar: string;
+  masterVolume: string;
+  instrument: string;
+  metronomeToggle: string;
+  stopReset: string;
+  waterfall: string;
+  zenMode: string;
+  exitZenMode: string;
+  pianoKeyboard: string;
+  keymap: string;
+  midi: {
+    title: string;
+    enable: string;
+    retry: string;
+    requesting: string;
+    connected: string;
+    denied: string;
+    unsupported: string;
+    inputs: string;
+  };
   instruments: {
     salamander: string;
     hq_piano: string;
@@ -63,6 +85,9 @@ interface TranslationSet {
     vel: string;
     sus: string;
     oct: string;
+    off: string;
+    short: string;
+    long: string;
   };
   landscape: {
     title: string;
@@ -71,6 +96,7 @@ interface TranslationSet {
   errors: {
     midiParseFailed: string;
     audioInitFailed: string;
+    importDuringRecording: string;
   };
 }
 
@@ -108,6 +134,28 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     togglePiano: 'Toggle Piano',
     practiceMode: 'Practice Mode',
     speed: 'Speed',
+    close: 'Close',
+    openToolbar: 'Open controls',
+    closeToolbar: 'Close controls',
+    masterVolume: 'Master output volume',
+    instrument: 'Instrument',
+    metronomeToggle: 'Toggle metronome',
+    stopReset: 'Stop and reset',
+    waterfall: 'Waterfall view',
+    zenMode: 'Zen mode',
+    exitZenMode: 'Exit Zen mode',
+    pianoKeyboard: '88-key piano keyboard',
+    keymap: 'Keymap',
+    midi: {
+      title: 'MIDI keyboard',
+      enable: 'Enable MIDI',
+      retry: 'Retry MIDI access',
+      requesting: 'Requesting permission…',
+      connected: 'MIDI access enabled',
+      denied: 'MIDI access was denied',
+      unsupported: 'Web MIDI is not supported in this browser',
+      inputs: 'inputs connected',
+    },
     instruments: {
       salamander: 'Yamaha C5 Grand (Pro)',
       hq_piano: 'Standard Piano (Lite)',
@@ -140,7 +188,10 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
       base: 'Base',
       vel: 'Vel',
       sus: 'Sus',
-      oct: 'Oct'
+      oct: 'Oct',
+      off: 'Off',
+      short: 'Short',
+      long: 'Long'
     },
     landscape: {
       title: 'Please Rotate Your Device',
@@ -148,7 +199,8 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     },
     errors: {
       midiParseFailed: 'Failed to parse MIDI file.',
-      audioInitFailed: 'Could not start the audio engine. Please try again.'
+      audioInitFailed: 'Could not start the audio engine. Please try again.',
+      importDuringRecording: 'Stop recording before importing a MIDI file.'
     }
   },
   zh: {
@@ -181,6 +233,28 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     togglePiano: '切换钢琴',
     practiceMode: '练习模式',
     speed: '倍速',
+    close: '关闭',
+    openToolbar: '展开控制栏',
+    closeToolbar: '收起控制栏',
+    masterVolume: '主输出音量',
+    instrument: '乐器',
+    metronomeToggle: '开关节拍器',
+    stopReset: '停止并复位',
+    waterfall: '瀑布流视图',
+    zenMode: '禅模式',
+    exitZenMode: '退出禅模式',
+    pianoKeyboard: '88 键钢琴键盘',
+    keymap: '键位映射',
+    midi: {
+      title: 'MIDI 键盘',
+      enable: '启用 MIDI',
+      retry: '重试 MIDI 授权',
+      requesting: '正在请求权限…',
+      connected: 'MIDI 已启用',
+      denied: 'MIDI 权限已被拒绝',
+      unsupported: '此浏览器不支持 Web MIDI',
+      inputs: '个输入设备已连接',
+    },
     instruments: {
       salamander: '雅马哈 C5 三角钢琴 (专业)',
       hq_piano: '标准钢琴 (轻量)',
@@ -213,7 +287,10 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
       base: '基调',
       vel: '力度',
       sus: '延音',
-      oct: '八度'
+      oct: '八度',
+      off: '关闭',
+      short: '短',
+      long: '长'
     },
     landscape: {
       title: '请旋转您的设备',
@@ -221,7 +298,8 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     },
     errors: {
       midiParseFailed: '无法解析 MIDI 文件。',
-      audioInitFailed: '无法启动音频引擎，请重试。'
+      audioInitFailed: '无法启动音频引擎，请重试。',
+      importDuringRecording: '请先停止录音，再导入 MIDI 文件。'
     }
   }
 };

@@ -19,6 +19,9 @@ interface VirtualKeyProps {
   customLabel?: string;
   onMouseDown: (code: string) => void;
   onMouseUp: (code: string) => void;
+  isTabStop?: boolean;
+  onMoveFocus?: (code: string, direction: 'previous' | 'next' | 'first' | 'last') => void;
+  registerKeyRef?: (code: string, element: HTMLDivElement | null) => void;
   theme: Theme; 
 }
 
@@ -37,6 +40,9 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   customLabel,
   onMouseDown,
   onMouseUp,
+  isTabStop = false,
+  onMoveFocus,
+  registerKeyRef,
   theme
 }) => {
   const mappedNote = note;
@@ -93,7 +99,14 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
       stateClass = theme.keyBase;
   }
   
-  const handleMouseDown = () => {
+  const handleMouseDown = (e?: React.MouseEvent<HTMLDivElement>) => {
+    if (e) {
+      // Keep pointer playing from stealing focus from the physical-key mapping.
+      e.preventDefault();
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+    }
     if (!isDummy) onMouseDown(code);
   };
   
@@ -131,13 +144,15 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
 
   return (
     <div 
+        ref={(element) => registerKeyRef?.(code, element)}
+        data-virtual-key-code={isDummy ? undefined : code}
         className={`${baseClasses} ${stateClass}`}
         style={style}
-        role="button"
-        aria-label={accessibleLabel}
-        aria-pressed={isActive || isPlaybackActive || false}
-        aria-disabled={isDummy || false}
-        tabIndex={isDummy ? -1 : 0}
+        role={isDummy ? undefined : 'button'}
+        aria-hidden={isDummy || undefined}
+        aria-label={isDummy ? undefined : accessibleLabel}
+        aria-pressed={isDummy ? undefined : isActive || isPlaybackActive || false}
+        tabIndex={isDummy ? -1 : isTabStop ? 0 : -1}
         title={description}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
@@ -145,17 +160,34 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
         onMouseEnter={handleMouseEnter}
         onTouchStart={(e) => { e.preventDefault(); handleMouseDown(); }}
         onTouchEnd={(e) => { e.preventDefault(); handleMouseUp(); }}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleMouseDown(); } }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleMouseDown();
+          } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            onMoveFocus?.(code, 'previous');
+          } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            onMoveFocus?.(code, 'next');
+          } else if (e.key === 'Home') {
+            e.preventDefault();
+            onMoveFocus?.(code, 'first');
+          } else if (e.key === 'End') {
+            e.preventDefault();
+            onMoveFocus?.(code, 'last');
+          }
+        }}
         onKeyUp={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleMouseUp(); } }}
     >
       {!isFunctionKey && !isCoffee && !isDummy && (
-          <span className={`absolute top-[2px] left-[3px] text-[10px] font-sans font-bold leading-none hidden lg:block ${labelTextColor}`}>
+          <span className={`absolute top-[2px] left-[3px] text-[10px] font-sans font-bold leading-none hidden sm:block ${labelTextColor}`}>
             {displayLabel}
           </span>
       )}
       
       {(isFunctionKey || isCoffee) && !isDummy && (
-          <span className={`${functionTextClass} ${!isCoffee && !isLargeLabel ? `${theme.keyFunctionText} font-bold font-sans` : ''} ${!isCoffee ? 'hidden lg:block' : ''}`}>
+          <span className={`${functionTextClass} ${!isCoffee && !isLargeLabel ? `${theme.keyFunctionText} font-bold font-sans` : ''} ${!isCoffee ? 'hidden sm:block' : ''}`}>
               {displayLabel}
           </span>
       )}

@@ -1,9 +1,16 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, type SetStateAction } from 'react';
 import { IMMUNE_TO_MODIFIERS, KEYMAP_PRESETS, KeymapID } from '../constants';
 
 export function useKeyboardInput(initialKeymapId: KeymapID = 'freepiano') {
-    const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set());
-    const [keymapId, setKeymapId] = useState<KeymapID>(initialKeymapId);
+    const [activeKeys, setActiveKeysState] = useState<Set<string>>(new Set());
+    const [keymapId, setKeymapId] = useState<KeymapID>(() => {
+        try {
+            const stored = localStorage.getItem('keypiano.keymap.v1');
+            return stored && stored in KEYMAP_PRESETS ? stored as KeymapID : initialKeymapId;
+        } catch {
+            return initialKeymapId;
+        }
+    });
     
     // Modifiers state
     const [tempTranspose, setTempTranspose] = useState(0); 
@@ -12,7 +19,25 @@ export function useKeyboardInput(initialKeymapId: KeymapID = 'freepiano') {
     const tempTransposeRef = useRef(0);
     const lastShiftLeftReleaseTime = useRef<number>(0);
 
+    const setActiveKeys = useCallback((updater: SetStateAction<Set<string>>) => {
+        setActiveKeysState(previous => {
+            const next = typeof updater === 'function'
+                ? (updater as (value: Set<string>) => Set<string>)(previous)
+                : updater;
+            activeKeysRef.current = next;
+            return next;
+        });
+    }, []);
+
     const currentKeyMap = KEYMAP_PRESETS[keymapId].map;
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('keypiano.keymap.v1', keymapId);
+        } catch {
+            // Storage is an enhancement, not a requirement for playing.
+        }
+    }, [keymapId]);
 
     const handleKeyDown = useCallback((e: globalThis.KeyboardEvent) => {
         if (e.repeat) return;
@@ -86,6 +111,13 @@ export function useKeyboardInput(initialKeymapId: KeymapID = 'freepiano') {
         return effectiveTranspose;
     }, []);
 
+    const resetKeyboardState = useCallback(() => {
+        activeKeysRef.current = new Set();
+        tempTransposeRef.current = 0;
+        setActiveKeysState(new Set());
+        setTempTranspose(0);
+    }, []);
+
     return {
         activeKeys,
         setActiveKeys,
@@ -96,6 +128,7 @@ export function useKeyboardInput(initialKeymapId: KeymapID = 'freepiano') {
         handleKeyDown,
         handleKeyUp,
         getEffectiveTranspose,
-        activeKeysRef
+        activeKeysRef,
+        resetKeyboardState,
     };
 }

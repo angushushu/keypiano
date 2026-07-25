@@ -22,18 +22,31 @@ interface UseAudioSchedulerProps {
 
 // ─── Pure helper functions ──────────────────────────────────────
 
-function computeActiveEvents(events: RecordedEvent[], upToMs: number): Map<string, RecordedEvent> {
-    const map = new Map<string, RecordedEvent>();
+export function computeActiveEvents(events: RecordedEvent[], upToMs: number): Map<string, RecordedEvent> {
+    const active = new Map<string, RecordedEvent>();
+    const queues = new Map<string, string[]>();
+    let sequence = 0;
+
     for (const evt of events) {
         if (evt.time > upToMs) break;
-        const key = evt.code || `${evt.note}_${evt.transpose}`;
-        if (evt.type === 'on') map.set(key, evt);
-        else map.delete(key);
+        const baseKey = evt.code || `${evt.note}_${evt.transpose}`;
+        const queue = queues.get(baseKey) ?? [];
+
+        if (evt.type === 'on') {
+            const instanceKey = `${baseKey}#${sequence++}`;
+            queue.push(instanceKey);
+            queues.set(baseKey, queue);
+            active.set(instanceKey, evt);
+        } else {
+            const instanceKey = queue.shift();
+            if (instanceKey) active.delete(instanceKey);
+            if (queue.length === 0) queues.delete(baseKey);
+        }
     }
-    return map;
+    return active;
 }
 
-function assignFingering(
+export function assignFingering(
     events: Map<string, RecordedEvent>,
     leftHandMap: Map<string, string>,
     rightHandMap: Map<string, string>,
@@ -85,13 +98,13 @@ function assignFingering(
     return { activeKeys: activeK, activeNotes: activeN };
 }
 
-function detectTempTranspose(activeKeys: Set<string>): number {
+export function detectTempTranspose(activeKeys: Set<string>): number {
     if (activeKeys.has('ShiftLeft')) return 1;
     if (activeKeys.has('ControlLeft')) return -1;
     return 0;
 }
 
-function emitTriggerNotes(
+export function emitTriggerNotes(
     events: RecordedEvent[],
     fromIndex: number,
     upToMs: number,
@@ -184,6 +197,11 @@ export function useAudioScheduler({
             while(idx < recordingRef.current.length && recordingRef.current[idx].time < elapsedTime) idx++;
             audioCursorRef.current = idx;
             lastStaveIndexRef.current = idx;
+            if (!isPracticeModeRef.current) {
+                computeActiveEvents(recordingRef.current, elapsedTime).forEach((evt) => {
+                    audioEngine.playNote(evt.note, evt.transpose, evt.velocity);
+                });
+            }
         }
     
         audioContextStartTimeRef.current = audioEngine.currentTime;

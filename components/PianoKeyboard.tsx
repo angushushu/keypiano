@@ -1,5 +1,5 @@
 
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useMemo, useState } from 'react';
 import { Theme } from '../theme';
 import { NOTE_NAMES } from '../constants';
 
@@ -10,9 +10,18 @@ interface PianoKeyboardProps {
     onPlayNote: (note: string) => void;
     onStopNote: (note: string) => void;
     theme?: Theme;
+    ariaLabel?: string;
 }
 
-const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNotes = new Set(), upcomingNotes = new Set(), onPlayNote, onStopNote, theme }) => {
+const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
+    activeNotes,
+    playbackNotes = new Set(),
+    upcomingNotes = new Set(),
+    onPlayNote,
+    onStopNote,
+    theme,
+    ariaLabel = '88-key piano keyboard',
+}) => {
     const t = theme || {
         pianoBg: 'bg-black',
         pianoWhiteKey: 'bg-gradient-to-b from-white to-gray-200',
@@ -44,6 +53,53 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
     }, []);
 
     const lastTouchNoteId = useRef<string | null>(null);
+    const keyRefs = useRef(new Map<string, HTMLDivElement>());
+    const keyboardPressedRef = useRef(new Set<string>());
+    const [focusedNote, setFocusedNote] = useState('C4');
+
+    const moveKeyboardFocus = (noteId: string, direction: 'previous' | 'next' | 'first' | 'last') => {
+        const currentIndex = allKeys.findIndex(key => key.noteId === noteId);
+        let nextIndex = currentIndex;
+        if (direction === 'previous') nextIndex = Math.max(0, currentIndex - 1);
+        if (direction === 'next') nextIndex = Math.min(allKeys.length - 1, currentIndex + 1);
+        if (direction === 'first') nextIndex = 0;
+        if (direction === 'last') nextIndex = allKeys.length - 1;
+        const nextNote = allKeys[nextIndex]?.noteId;
+        if (!nextNote) return;
+        setFocusedNote(nextNote);
+        requestAnimationFrame(() => keyRefs.current.get(nextNote)?.focus());
+    };
+
+    const handleKeyboardDown = (e: React.KeyboardEvent, noteId: string) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (!keyboardPressedRef.current.has(noteId)) {
+                keyboardPressedRef.current.add(noteId);
+                onPlayNote(noteId);
+            }
+            return;
+        }
+        const directions: Record<string, 'previous' | 'next' | 'first' | 'last'> = {
+            ArrowLeft: 'previous',
+            ArrowDown: 'previous',
+            ArrowRight: 'next',
+            ArrowUp: 'next',
+            Home: 'first',
+            End: 'last',
+        };
+        const direction = directions[e.key];
+        if (direction) {
+            e.preventDefault();
+            moveKeyboardFocus(noteId, direction);
+        }
+    };
+
+    const handleKeyboardUp = (e: React.KeyboardEvent, noteId: string) => {
+        if ((e.key === 'Enter' || e.key === ' ') && keyboardPressedRef.current.delete(noteId)) {
+            e.preventDefault();
+            onStopNote(noteId);
+        }
+    };
 
     const handleNoteAction = (noteId: string, action: 'down' | 'up' | 'enter' | 'leave', e: React.MouseEvent) => {
         e.preventDefault();
@@ -60,6 +116,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
     };
 
     const handleTouchStart = (e: React.TouchEvent, noteId: string) => {
+        e.preventDefault();
         onPlayNote(noteId);
         lastTouchNoteId.current = noteId;
     };
@@ -101,7 +158,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
             className={`relative h-48 md:h-60 flex select-none overflow-hidden p-1 rounded w-full cursor-pointer touch-none ${t.pianoBg}`}
             style={{ touchAction: 'none' }}
             role="group"
-            aria-label="Piano keyboard"
+            aria-label={ariaLabel}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             onTouchCancel={handleTouchEnd}
@@ -118,13 +175,23 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
                  const extraClass = (isUserActive && isPlaybackActive) ? '!brightness-110' : '';
                  return (
                      <div
+                         ref={(element) => {
+                             if (element) keyRefs.current.set(k.noteId, element);
+                             else keyRefs.current.delete(k.noteId);
+                         }}
                          key={k.noteId}
                          data-note-id={k.noteId}
                          role="button"
                          aria-label={`${k.noteId}${k.note === 'C' ? ` (C${k.octave})` : ''}`}
                          aria-pressed={isUserActive || isPlaybackActive || false}
-                         tabIndex={-1}
-                         className={`flex-1 border-l border-b border-r border-gray-400 rounded-b-[4px] relative ${keyClass} ${extraClass}`}
+                         tabIndex={focusedNote === k.noteId ? 0 : -1}
+                         className={`flex-1 border-l border-b border-r border-gray-400 rounded-b-[4px] relative focus:outline-none focus:ring-2 focus:ring-inset focus:ring-yellow-500 ${keyClass} ${extraClass}`}
+                         onFocus={() => setFocusedNote(k.noteId)}
+                         onKeyDown={(e) => handleKeyboardDown(e, k.noteId)}
+                         onKeyUp={(e) => handleKeyboardUp(e, k.noteId)}
+                         onBlur={() => {
+                             if (keyboardPressedRef.current.delete(k.noteId)) onStopNote(k.noteId);
+                         }}
                          onMouseDown={(e) => handleNoteAction(k.noteId, 'down', e)}
                          onMouseUp={(e) => handleNoteAction(k.noteId, 'up', e)}
                          onMouseEnter={(e) => handleNoteAction(k.noteId, 'enter', e)}
@@ -161,16 +228,26 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ activeNotes, playbackNote
 
                      return (
                          <div
+                             ref={(element) => {
+                                 if (element) keyRefs.current.set(k.noteId, element);
+                                 else keyRefs.current.delete(k.noteId);
+                             }}
                              key={k.noteId}
                              data-note-id={k.noteId}
                              role="button"
                              aria-label={k.noteId}
                              aria-pressed={isUserActive || isPlaybackActive || false}
-                             tabIndex={-1}
-                             className={`absolute h-[64%] border-b-4 rounded-b-[3px] z-10 pointer-events-auto ${keyClass} ${extraClass}`}
+                             tabIndex={focusedNote === k.noteId ? 0 : -1}
+                             className={`absolute h-[64%] border-b-4 rounded-b-[3px] z-10 pointer-events-auto focus:outline-none focus:ring-2 focus:ring-inset focus:ring-yellow-400 ${keyClass} ${extraClass}`}
                              style={{
                                  left: `${leftPct}%`,
                                  width: `${blackWidthPct}%`
+                             }}
+                             onFocus={() => setFocusedNote(k.noteId)}
+                             onKeyDown={(e) => handleKeyboardDown(e, k.noteId)}
+                             onKeyUp={(e) => handleKeyboardUp(e, k.noteId)}
+                             onBlur={() => {
+                                 if (keyboardPressedRef.current.delete(k.noteId)) onStopNote(k.noteId);
                              }}
                              onMouseDown={(e) => { e.stopPropagation(); handleNoteAction(k.noteId, 'down', e); }}
                              onMouseUp={(e) => { e.stopPropagation(); handleNoteAction(k.noteId, 'up', e); }}

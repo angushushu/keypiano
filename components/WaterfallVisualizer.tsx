@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useMemo } from 'react';
 import { RecordedEvent } from '../types';
-import { NOTE_NAMES, getTransposedNote, FLAT_TO_SHARP, noteToMidi } from '../constants';
+import { NOTE_NAMES, getTransposedNote, noteToMidi } from '../constants';
 import { Theme } from '../theme';
 
 interface WaterfallVisualizerProps {
@@ -19,6 +19,11 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
     theme
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const currentTimeRef = useRef(currentTimeMs);
+    const playbackSpeedRef = useRef(playbackSpeed);
+    const lookaheadRef = useRef(lookaheadMs);
+    const noteBlocksRef = useRef<Array<{ midi: number; startTime: number; endTime: number; isBlack: boolean }>>([]);
+    const themeRef = useRef(theme);
 
     // Pre-calculate positions for all 88 keys to avoid doing it per frame
     const keyLayout = useMemo(() => {
@@ -80,6 +85,14 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
         return blocks;
     }, [recording, keyLayout]);
 
+    useEffect(() => {
+        currentTimeRef.current = currentTimeMs;
+        playbackSpeedRef.current = playbackSpeed;
+        lookaheadRef.current = lookaheadMs;
+        noteBlocksRef.current = noteBlocks;
+        themeRef.current = theme;
+    }, [currentTimeMs, playbackSpeed, lookaheadMs, noteBlocks, theme]);
+
     // Track canvas dimensions to avoid reallocating every frame
     const canvasSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
 
@@ -125,8 +138,12 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
             ctx.clearRect(0, 0, width, height);
 
             // Time window bounds
-            const visibleStartTime = currentTimeMs;
-            const visibleEndTime = currentTimeMs + (lookaheadMs / playbackSpeed);
+            const frameTime = currentTimeRef.current;
+            const frameSpeed = playbackSpeedRef.current;
+            const frameLookahead = lookaheadRef.current;
+            const frameTheme = themeRef.current;
+            const visibleStartTime = frameTime;
+            const visibleEndTime = frameTime + (frameLookahead / frameSpeed);
 
             // Draw grid lines separating white keys for reference
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
@@ -141,7 +158,7 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
             ctx.stroke();
 
             // Draw blocks
-            noteBlocks.forEach(blk => {
+            noteBlocksRef.current.forEach(blk => {
                 if (blk.endTime < visibleStartTime || blk.startTime > visibleEndTime) return;
 
                 const layout = keyLayout.get(blk.midi);
@@ -150,10 +167,10 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
                 const x = (layout.xPct / 100) * width;
                 const blockWidth = (layout.widthPct / 100) * width;
 
-                const pixelsPerMs = height / (lookaheadMs / playbackSpeed);
+                const pixelsPerMs = height / (frameLookahead / frameSpeed);
                 
-                const msFromHitToStart = blk.startTime - currentTimeMs;
-                const msFromHitToEnd = blk.endTime - currentTimeMs;
+                const msFromHitToStart = blk.startTime - frameTime;
+                const msFromHitToEnd = blk.endTime - frameTime;
 
                 let yBottom = height - (msFromHitToStart * pixelsPerMs);
                 let yTop = height - (msFromHitToEnd * pixelsPerMs);
@@ -165,7 +182,7 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
                 
                 const radius = Math.min(blockWidth / 3, 4);
 
-                const baseColorHex = blk.isBlack ? (theme?.waterfallBlackHex || '#22c55e') : (theme?.waterfallWhiteHex || '#86efac');
+                const baseColorHex = blk.isBlack ? (frameTheme?.waterfallBlackHex || '#22c55e') : (frameTheme?.waterfallWhiteHex || '#86efac');
                 const fadedColor = baseColorHex + '0D';
                 
                 const gradient = ctx.createLinearGradient(0, yTop, 0, yBottom);
@@ -174,7 +191,7 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
 
                 ctx.fillStyle = gradient;
 
-                if (currentTimeMs >= blk.startTime && currentTimeMs <= blk.endTime) {
+                if (frameTime >= blk.startTime && frameTime <= blk.endTime) {
                     ctx.shadowBlur = 15;
                     ctx.shadowColor = baseColorHex;
                 } else {
@@ -200,7 +217,7 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
             cancelAnimationFrame(animationFrameId);
             resizeObserver.disconnect();
         };
-    }, [noteBlocks, currentTimeMs, playbackSpeed, lookaheadMs, keyLayout, theme]);
+    }, [keyLayout]);
 
     return (
         <div className="w-full h-full p-1 rounded bg-[#1a1a1a]">

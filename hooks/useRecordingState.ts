@@ -3,14 +3,14 @@ import { RecordedEvent } from '../types';
 
 // ─── State ──────────────────────────────────────────────────────
 
-interface RecordingState {
+export interface RecordingState {
   isRecording: boolean;
   recordedEvents: RecordedEvent[];
   recordingStartTime: number;
   elapsedTime: number;
 }
 
-const initialRecordingState: RecordingState = {
+export const initialRecordingState: RecordingState = {
   isRecording: false,
   recordedEvents: [],
   recordingStartTime: 0,
@@ -19,7 +19,7 @@ const initialRecordingState: RecordingState = {
 
 // ─── Actions ────────────────────────────────────────────────────
 
-type RecordingAction =
+export type RecordingAction =
   | { type: 'START_RECORDING'; startTime: number }
   | { type: 'STOP_RECORDING'; events: RecordedEvent[] }
   | { type: 'TICK_TIMER'; elapsed: number }
@@ -29,7 +29,7 @@ type RecordingAction =
 
 // ─── Reducer ────────────────────────────────────────────────────
 
-function recordingReducer(state: RecordingState, action: RecordingAction): RecordingState {
+export function recordingReducer(state: RecordingState, action: RecordingAction): RecordingState {
   switch (action.type) {
     case 'START_RECORDING':
       return {
@@ -50,7 +50,13 @@ function recordingReducer(state: RecordingState, action: RecordingAction): Recor
     case 'RESET_TIMER':
       return { ...state, elapsedTime: 0 };
     case 'SET_EVENTS':
-      return { ...state, recordedEvents: action.events, elapsedTime: 0 };
+      return {
+        ...state,
+        isRecording: false,
+        recordedEvents: action.events,
+        recordingStartTime: 0,
+        elapsedTime: 0,
+      };
     case 'SET_ELAPSED':
       return { ...state, elapsedTime: action.elapsed };
     default:
