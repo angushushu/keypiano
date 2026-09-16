@@ -8,6 +8,8 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-16
+
 ### Added
 
 - `public/CNAME` so deploying cannot delete the `keypiano.app` custom domain.
