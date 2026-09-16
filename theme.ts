@@ -3,7 +3,6 @@ export type ThemeID = 'dark' | 'light' | 'cyber' | 'fauvism' | 'minimalist' | 'p
 
 export interface Theme {
   id: ThemeID;
-  name: string;
   isLight: boolean;
   // Global Layout
   appBg: string;
@@ -46,7 +45,6 @@ export interface Theme {
 export const THEMES: Record<ThemeID, Theme> = {
   dark: {
     id: 'dark',
-    name: 'Dark',
     isLight: false,
     appBg: 'bg-[#333333]',
     toolbarBg: 'bg-[#2a2a2a]',
@@ -80,7 +78,6 @@ export const THEMES: Record<ThemeID, Theme> = {
   },
   light: {
     id: 'light',
-    name: 'Light',
     isLight: true,
     appBg: 'bg-[#e5e7eb]',
     toolbarBg: 'bg-white',
@@ -114,7 +111,6 @@ export const THEMES: Record<ThemeID, Theme> = {
   },
   cyber: {
     id: 'cyber',
-    name: 'Cyber',
     isLight: false,
     appBg: 'bg-[#09090b]',
     toolbarBg: 'bg-[#18181b]',
@@ -148,7 +144,6 @@ export const THEMES: Record<ThemeID, Theme> = {
   },
   fauvism: {
     id: 'fauvism',
-    name: 'Fauvism',
     isLight: true,
     appBg: 'bg-[#fbbf24]', // Amber 400
     toolbarBg: 'bg-[#1e40af]', // Blue 800
@@ -182,7 +177,6 @@ export const THEMES: Record<ThemeID, Theme> = {
   },
   minimalist: {
     id: 'minimalist',
-    name: 'Minimalist',
     isLight: true,
     appBg: 'bg-[#ffffff]',
     toolbarBg: 'bg-[#ffffff]',
@@ -216,7 +210,6 @@ export const THEMES: Record<ThemeID, Theme> = {
   },
   pastel: {
     id: 'pastel',
-    name: 'Pastel',
     isLight: true,
     appBg: 'bg-[#fdf4ff]', // Fuchsia 50
     toolbarBg: 'bg-[#f0f9ff]', // Sky 50

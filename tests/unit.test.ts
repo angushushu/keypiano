@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { Midi } from '@tonejs/midi';
-import { generateMidiFile } from '../services/midiIO';
+import { generateMidiFile, parseMidiFile } from '../services/midiIO';
 import { ALL_ROWS, getJianpu, getTransposedNote, midiNumberToNote, noteToMidi } from '../constants';
 import { RecordedEvent } from '../types';
 import { computeActiveEvents } from '../hooks/useAudioScheduler';
@@ -55,6 +55,47 @@ test('generateMidiFile preserves overlapping notes of the same pitch', async () 
   assert.equal(notes.length, 2);
   assert.deepEqual(notes.map(note => Math.round(note.time * 1000)), [0, 100]);
   assert.deepEqual(notes.map(note => Math.round(note.duration * 1000)), [300, 400]);
+});
+
+test('MIDI export and import preserve channel, track name and program', async () => {
+  const events: RecordedEvent[] = [
+    { time: 0, type: 'on', note: 'C4', transpose: 0, instrumentId: 'salamander', velocity: 100, channel: 2, trackName: 'Lead', program: 81 },
+    { time: 200, type: 'off', note: 'C4', transpose: 0, instrumentId: 'salamander', channel: 2, trackName: 'Lead', program: 81 },
+    { time: 0, type: 'on', note: 'E3', transpose: 0, instrumentId: 'salamander', velocity: 90, channel: 5, trackName: 'Bass', program: 33 },
+    { time: 400, type: 'off', note: 'E3', transpose: 0, instrumentId: 'salamander', channel: 5, trackName: 'Bass', program: 33 },
+  ];
+
+  const blob = generateMidiFile(events);
+  const midi = new Midi(await blob.arrayBuffer());
+
+  // Two source tracks must stay two tracks rather than collapsing onto one channel.
+  assert.equal(midi.tracks.length, 2);
+
+  const byName = new Map(midi.tracks.map(track => [track.name, track]));
+  assert.deepEqual([...byName.keys()].sort(), ['Bass', 'Lead']);
+  assert.equal(byName.get('Lead')?.channel, 2);
+  assert.equal(byName.get('Lead')?.instrument.number, 81);
+  assert.equal(byName.get('Bass')?.channel, 5);
+  assert.equal(byName.get('Bass')?.instrument.number, 33);
+
+  // …and survive a trip back through the importer.
+  const onEvents = parseMidiFile(await blob.arrayBuffer()).filter(evt => evt.type === 'on');
+  assert.equal(onEvents.length, 2);
+  assert.deepEqual(onEvents.map(evt => evt.channel).sort(), [2, 5]);
+  assert.deepEqual(onEvents.map(evt => evt.program).sort(), [33, 81]);
+  assert.deepEqual(onEvents.map(evt => evt.trackName).sort(), ['Bass', 'Lead']);
+});
+
+test('MIDI export clamps out-of-range channel and program values', async () => {
+  const events: RecordedEvent[] = [
+    { time: 0, type: 'on', note: 'C4', transpose: 0, instrumentId: 'salamander', channel: 99, program: 900 },
+    { time: 100, type: 'off', note: 'C4', transpose: 0, instrumentId: 'salamander', channel: 99, program: 900 },
+  ];
+
+  const midi = new Midi(await generateMidiFile(events).arrayBuffer());
+  assert.equal(midi.tracks.length, 1);
+  assert.equal(midi.tracks[0].channel, 15);
+  assert.equal(midi.tracks[0].instrument.number, 127);
 });
 
 test('playback state preserves overlapping note instances until matching note-offs', () => {

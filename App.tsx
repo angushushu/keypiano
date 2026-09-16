@@ -384,7 +384,9 @@ const AppInner: React.FC = () => {
     const blob = generateMidiFile(recordedEvents);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = `KeyPiano_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.mid`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    // Revoking in the same tick can cancel the download before it starts.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }, [recordedEvents]);
 
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {

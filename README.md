@@ -62,6 +62,8 @@ Recordings store note-on and note-off events, velocity, key mapping, and transpo
 
 MIDI files do not preserve KeyPiano-specific UI state, instrument sample names, sustain-pedal automation, or metronome settings. Imported MIDI is played with the currently selected KeyPiano instrument. KeyPiano records note events rather than microphone or rendered audio.
 
+Track name, channel and program number from an imported file are kept and written back out, so a multi-track file survives a round trip instead of collapsing onto one channel. KeyPiano's own recordings are single-track and export on channel 1.
+
 ## Browser support
 
 | Capability | Chromium browsers | Firefox | Safari |
@@ -92,3 +94,11 @@ npm run deploy
 `public/CNAME` pins the `keypiano.app` custom domain. It has to live in `public/` so Vite copies it into `dist/` — `gh-pages` replaces the branch contents on every deploy, so a `CNAME` kept only on the branch would be deleted and the domain would stop resolving.
 
 The production build includes the web app manifest, service worker, scalable app icons, sitemap, robots file, and social preview image.
+
+## License
+
+MIT — see [LICENSE](LICENSE). That covers the source code only: instrument samples are fetched from third-party hosts at runtime and remain under their own licences.
+
+## Changelog
+
+Notable changes are listed in [CHANGELOG.md](CHANGELOG.md).

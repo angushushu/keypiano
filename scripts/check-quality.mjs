@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const root = process.cwd();
-const sourceDirs = ['components', 'contexts', 'hooks', 'services', 'types'];
+const sourceDirs = ['components', 'contexts', 'hooks', 'services', 'types', 'workers'];
 const sourceFiles = ['App.tsx', 'constants.ts', 'i18n.ts', 'index.tsx', 'theme.ts', 'vite.config.ts'];
 const findings = [];
 

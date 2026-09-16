@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { audioEngine } from '../services/audioEngine';
 import { RecordedEvent, TriggerNote } from '../types';
 import { getTransposedNote } from '../constants';
+import type { TickWorkerMessage } from '../workers/tickWorker';
 
 interface UseAudioSchedulerProps {
     recordingRef: React.MutableRefObject<RecordedEvent[]>;
@@ -230,30 +231,17 @@ export function useAudioScheduler({
     };
 
     useEffect(() => {
-        const workerCode = `
-            let intervalId;
-            self.onmessage = function(e) {
-                if (e.data === 'start') {
-                    if (intervalId) clearInterval(intervalId);
-                    intervalId = setInterval(() => { self.postMessage('tick'); }, 25);
-                } else if (e.data === 'stop') {
-                    if (intervalId) clearInterval(intervalId);
-                }
-            };
-        `;
-        const blob = new Blob([workerCode], { type: 'application/javascript' });
-        const blobUrl = URL.createObjectURL(blob);
-        workerRef.current = new Worker(blobUrl);
-        workerRef.current.onmessage = (e) => {
-            if (e.data === 'tick') runAudioScheduler();
+        const worker = new Worker(new URL('../workers/tickWorker.ts', import.meta.url), { type: 'module' });
+        worker.onmessage = (event: MessageEvent<TickWorkerMessage>) => {
+            if (event.data === 'tick') runAudioScheduler();
         };
+        workerRef.current = worker;
         return () => {
-            workerRef.current?.terminate();
+            worker.terminate();
             // Must be cleared: the visual loop re-arms itself while this is
             // truthy, which would keep requestAnimationFrame running forever
             // after unmount (and hold the audio voices it references).
             workerRef.current = null;
-            URL.revokeObjectURL(blobUrl);
             if (animFrameRef.current !== null) {
                 cancelAnimationFrame(animFrameRef.current);
                 animFrameRef.current = null;

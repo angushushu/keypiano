@@ -19,6 +19,14 @@ export interface RecordedEvent {
   transpose: number;
   instrumentId: InstrumentID;
   velocity?: number;
+  /**
+   * MIDI metadata, carried so a file survives an import/export round trip
+   * without collapsing into a single track. KeyPiano's own recordings leave
+   * these undefined and are exported on channel 1.
+   */
+  channel?: number;   // 0-15
+  trackName?: string;
+  program?: number;   // General MIDI program number, 0-127
 }
 
 export type NoteType = 'user' | 'practice';

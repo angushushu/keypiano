@@ -130,6 +130,45 @@ class AudioEngine {
         this.ensureContext();
         this.unlockAudio();
     }
+
+    /**
+     * Releases everything the engine owns: in-flight downloads, the metronome
+     * timer, sounding voices, decoded buffers and the AudioContext itself.
+     *
+     * Deliberately NOT wired to React unmount. The engine is a module singleton
+     * and React StrictMode mounts effects twice in development, so closing the
+     * context on unmount would tear down audio the remount still needs. The
+     * correct trigger is `pagehide` (see index.tsx), which also makes the
+     * lifecycle explicit for tests.
+     */
+    public dispose() {
+        this.loadAbortController?.abort();
+        this.loadAbortController = null;
+        this.loadGeneration++;
+
+        this.stopMetronome();
+        this.stopAllNotes();
+        this.buffers.clear();
+        this.networkErrors = [];
+        this.isLoaded = false;
+
+        try {
+            this.masterGain?.disconnect();
+            this.compressor?.disconnect();
+        } catch {
+            // Nodes may already be detached; there is nothing left to release.
+        }
+
+        const ctx = this.ctx;
+        this.ctx = null;
+        this.masterGain = null;
+        this.compressor = null;
+
+        if (ctx && ctx.state !== 'closed') {
+            // Rejections here are not actionable: the page is going away.
+            void ctx.close().catch(() => {});
+        }
+    }
     
     public get currentTime() {
         return this.ctx?.currentTime || 0;
