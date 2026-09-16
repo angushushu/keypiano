@@ -8,6 +8,8 @@ interface VirtualKeyProps {
   label: string;
   code: string;
   description?: string;
+  /** Localized accessible-name template for a mapped key, e.g. `Play note {note}`. */
+  playNoteTemplate?: string;
   note?: string; 
   width?: number; // 1u = 4 grid units
   height?: number; // 1 row = 1 grid row (unless spanning)
@@ -30,6 +32,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   label, 
   code, 
   description,
+  playNoteTemplate = 'Play note {note}',
   note, 
   width = 1, 
   height = 1,
@@ -47,7 +50,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
 }) => {
   const mappedNote = note;
   const displayLabel = customLabel || label;
-  const accessibleLabel = mappedNote ? `Play note ${mappedNote}` : (description || displayLabel);
+  const accessibleLabel = mappedNote ? playNoteTemplate.replace('{note}', mappedNote) : (description || displayLabel);
   const jianpu = mappedNote ? getJianpu(mappedNote) : null;
 
   // GRID UNIT LOGIC

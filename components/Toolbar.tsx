@@ -16,6 +16,10 @@ const isInstrumentID = (value: string): value is InstrumentID => (
   INSTRUMENTS.some(inst => inst.id === value)
 );
 
+export const preventMouseFocus = (event: Pick<React.MouseEvent, 'preventDefault'>) => {
+  event.preventDefault();
+};
+
 const formatTime = (ms: number) => {
   const totalSeconds = Math.floor(ms / 1000);
   const mins = Math.floor(totalSeconds / 60);
@@ -66,7 +70,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   settingsButtonRef, infoButtonRef,
 }) => {
   const { theme, t, isLightTheme, setIsZenMode } = useSettings();
-  const { currentInstrument, handleInstrumentChange, masterVolume, setMasterVolume, isAudioStarted, isLoading } = useSynth();
+  const { currentInstrument, handleInstrumentChange, masterVolume, setMasterVolume, isLoading } = useSynth();
   const { isMetronomeOn, setIsMetronomeOn, bpm, setBpm, metronomeSound, setMetronomeSound, METRONOME_SOUNDS } = useMetronome();
   const isMetronomeSound = (value: string): value is MetronomeSound => (
     METRONOME_SOUNDS.some(sound => sound.id === value)
@@ -103,7 +107,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
               const value = e.target.value;
               if (isInstrumentID(value)) handleInstrumentChange(value);
             }}
-            disabled={!isAudioStarted || isLoading || isRecording || isPlayingBack}
+            disabled={isLoading || isRecording || isPlayingBack}
             className="bg-transparent text-white text-xs py-1 outline-none cursor-pointer disabled:opacity-50 max-w-[120px] md:max-w-none"
             style={{ color: theme.id === 'light' ? 'black' : 'white' }}
           >
@@ -198,6 +202,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
           <div className="w-px h-4 bg-gray-500/30 mx-0.5"></div>
           <button
+            onMouseDown={preventMouseFocus}
             onClick={() => {
               const nextMode = !isPracticeMode;
               setIsPracticeMode(nextMode);

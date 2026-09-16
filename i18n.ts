@@ -2,11 +2,7 @@ export type Language = 'en' | 'zh';
 
 interface TranslationSet {
   title: string;
-  description: string;
   loading: string;
-  selectSound: string;
-  startEngine: string;
-  requireInteraction: string;
   aboutTitle: string;
   aboutDesc: string;
   sustain: string;
@@ -42,6 +38,20 @@ interface TranslationSet {
   exitZenMode: string;
   pianoKeyboard: string;
   keymap: string;
+  dismiss: string;
+  /** Accessible name for a piano key, with `{note}` replaced by the note name. */
+  playNote: string;
+  /** Tooltip/ARIA text for the on-screen keyboard, keyed by KeyboardEvent.code. */
+  keyDescriptions: Record<string, string>;
+  shortcuts: {
+    title: string;
+    hint: string;
+  };
+  errorScreen: {
+    title: string;
+    message: string;
+    tryAgain: string;
+  };
   midi: {
     title: string;
     enable: string;
@@ -97,20 +107,17 @@ interface TranslationSet {
     midiParseFailed: string;
     audioInitFailed: string;
     importDuringRecording: string;
+    /** Sample-download warning, with `{count}` replaced by the number of failures. */
+    samplesFailed: string;
   };
 }
 
-export type TranslationKey = keyof typeof TRANSLATIONS;
 export type { TranslationSet };
 
 export const TRANSLATIONS: Record<Language, TranslationSet> = {
   en: {
     title: 'KeyPiano',
-    description: 'Web-based polyphonic synthesizer',
     loading: 'Loading Sounds...',
-    selectSound: 'Select Sound Source',
-    startEngine: 'Start Engine',
-    requireInteraction: 'Audio requires interaction to unlock.',
     aboutTitle: 'About KeyPiano',
     aboutDesc: 'KeyPiano is a browser-based polyphonic synthesizer inspired by FreePiano.',
     sustain: 'Sustain',
@@ -146,6 +153,37 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     exitZenMode: 'Exit Zen mode',
     pianoKeyboard: '88-key piano keyboard',
     keymap: 'Keymap',
+    dismiss: 'Dismiss',
+    playNote: 'Play note {note}',
+    keyDescriptions: {
+      Escape: 'Cycle sustain level',
+      F1: 'Octave down',
+      F2: 'Octave up',
+      F3: 'Transpose down',
+      F4: 'Transpose up',
+      F5: 'Keyboard velocity down',
+      F6: 'Keyboard velocity up',
+      F7: 'Toggle metronome',
+      F8: 'Toggle stave and keyboard view',
+      F9: 'Play or pause recording',
+      F10: 'Start or stop recording',
+      F11: 'Stop playback and reset position',
+      F12: 'Reset transpose and octave',
+      Coffee: 'Open support link',
+      ShiftLeft: 'Raise left-hand notes by one semitone while held',
+      ShiftRight: 'Mapped performance key',
+      ControlLeft: 'Lower left-hand notes by one semitone while held',
+      Space: 'Play mapped spacebar note'
+    },
+    shortcuts: {
+      title: 'Keyboard Shortcuts',
+      hint: 'Octave and transpose keys are locked while recording or playing back, so a take keeps one consistent mapping.'
+    },
+    errorScreen: {
+      title: 'Oops! Something went wrong',
+      message: 'KeyPiano encountered an unexpected error. Your audio engine may still be running.',
+      tryAgain: 'Try Again'
+    },
     midi: {
       title: 'MIDI keyboard',
       enable: 'Enable MIDI',
@@ -200,16 +238,13 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     errors: {
       midiParseFailed: 'Failed to parse MIDI file.',
       audioInitFailed: 'Could not start the audio engine. Please try again.',
-      importDuringRecording: 'Stop recording before importing a MIDI file.'
+      importDuringRecording: 'Stop recording before importing a MIDI file.',
+      samplesFailed: '{count} samples failed to load. Using pitch-shift fallback.'
     }
   },
   zh: {
     title: '键盘钢琴',
-    description: '基于 Web 的多复音合成器',
     loading: '加载音色中...',
-    selectSound: '选择音源',
-    startEngine: '启动引擎',
-    requireInteraction: '音频需要用户交互才能解锁',
     aboutTitle: '关于 KeyPiano',
     aboutDesc: 'KeyPiano 是一个受 FreePiano 启发的基于浏览器的多复音合成器。',
     sustain: '延音 (Sustain)',
@@ -245,6 +280,37 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     exitZenMode: '退出禅模式',
     pianoKeyboard: '88 键钢琴键盘',
     keymap: '键位映射',
+    dismiss: '关闭提示',
+    playNote: '弹奏 {note}',
+    keyDescriptions: {
+      Escape: '循环切换延音级别',
+      F1: '降低八度',
+      F2: '升高八度',
+      F3: '降低半音（移调）',
+      F4: '升高半音（移调）',
+      F5: '降低键盘力度',
+      F6: '提高键盘力度',
+      F7: '开关节拍器',
+      F8: '在五线谱与键盘视图间切换',
+      F9: '播放或暂停录音',
+      F10: '开始或停止录音',
+      F11: '停止播放并复位',
+      F12: '重置移调与八度',
+      Coffee: '打开赞助链接',
+      ShiftLeft: '按住时把左手音符升高半音',
+      ShiftRight: '参与演奏映射的按键',
+      ControlLeft: '按住时把左手音符降低半音',
+      Space: '弹奏映射到空格键的音符'
+    },
+    shortcuts: {
+      title: '快捷键',
+      hint: '录音或播放期间，八度与移调快捷键会被锁定，以保证整段演奏使用一致的映射。'
+    },
+    errorScreen: {
+      title: '出错了',
+      message: 'KeyPiano 遇到了意外错误。音频引擎可能仍在运行。',
+      tryAgain: '重试'
+    },
     midi: {
       title: 'MIDI 键盘',
       enable: '启用 MIDI',
@@ -299,7 +365,8 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     errors: {
       midiParseFailed: '无法解析 MIDI 文件。',
       audioInitFailed: '无法启动音频引擎，请重试。',
-      importDuringRecording: '请先停止录音，再导入 MIDI 文件。'
+      importDuringRecording: '请先停止录音，再导入 MIDI 文件。',
+      samplesFailed: '{count} 个采样加载失败，已改用变调回退。'
     }
   }
 };

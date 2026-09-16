@@ -28,7 +28,7 @@ const readMetronomePreferences = (): { bpm: number; sound: MetronomeSound } => {
 };
 
 export const MetronomeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAudioStarted } = useSynth();
+  const { ensureAudioStarted } = useSynth();
   const [initialPreferences] = useState(readMetronomePreferences);
 
   const [isMetronomeOn, setIsMetronomeOn] = useState(false);
@@ -36,12 +36,21 @@ export const MetronomeProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [metronomeSound, setMetronomeSound] = useState<MetronomeSound>(initialPreferences.sound);
 
   useEffect(() => {
-    if (isAudioStarted) {
+    if (!isMetronomeOn) {
       audioEngine.setBPM(bpm);
-      if (isMetronomeOn) audioEngine.startMetronome(bpm);
-      else audioEngine.stopMetronome();
+      audioEngine.stopMetronome();
+      return;
     }
-  }, [isMetronomeOn, bpm, isAudioStarted]);
+    // Turning the metronome on is itself a user gesture, so it can be the
+    // interaction that unlocks audio.
+    let isCancelled = false;
+    ensureAudioStarted().then(isReady => {
+      if (isCancelled || !isReady) return;
+      audioEngine.setBPM(bpm);
+      audioEngine.startMetronome(bpm);
+    });
+    return () => { isCancelled = true; };
+  }, [isMetronomeOn, bpm, ensureAudioStarted]);
 
   useEffect(() => {
     audioEngine.setMetronomeSound(metronomeSound);
@@ -51,6 +60,10 @@ export const MetronomeProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Preferences remain available for the current session.
     }
   }, [bpm, metronomeSound]);
+
+  // The metronome timer lives in the audio engine, not in React state, so it
+  // has to be stopped explicitly when this provider goes away.
+  useEffect(() => () => { audioEngine.stopMetronome(); }, []);
 
   const value = useMemo(() => ({
     isMetronomeOn, setIsMetronomeOn,

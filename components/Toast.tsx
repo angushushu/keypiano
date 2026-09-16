@@ -7,6 +7,8 @@ export interface ToastProps {
   message: string;
   variant: ToastVariant;
   onDismiss: () => void;
+  /** Localized accessible name for the dismiss button. */
+  dismissLabel: string;
 }
 
 const variantStyles: Record<ToastVariant, string> = {
@@ -15,7 +17,7 @@ const variantStyles: Record<ToastVariant, string> = {
   info: 'bg-slate-700/90',
 };
 
-const Toast: React.FC<ToastProps> = ({ message, variant, onDismiss }) => (
+const Toast: React.FC<ToastProps> = ({ message, variant, onDismiss, dismissLabel }) => (
   <div
     role="alert"
     className={`absolute top-16 left-1/2 -translate-x-1/2 z-50 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 backdrop-blur animate-fade-in-down max-w-[min(90vw,28rem)] ${variantStyles[variant]}`}
@@ -30,7 +32,7 @@ const Toast: React.FC<ToastProps> = ({ message, variant, onDismiss }) => (
       type="button"
       onClick={onDismiss}
       className="ml-1 shrink-0 hover:bg-white/20 p-1 rounded"
-      aria-label="Dismiss"
+      aria-label={dismissLabel}
     >
       <X className="w-3 h-3" />
     </button>

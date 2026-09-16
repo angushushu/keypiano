@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { Midi } from '@tonejs/midi';
 import { generateMidiFile } from '../services/midiIO';
-import { getJianpu, getTransposedNote, midiNumberToNote, noteToMidi } from '../constants';
+import { ALL_ROWS, getJianpu, getTransposedNote, midiNumberToNote, noteToMidi } from '../constants';
 import { RecordedEvent } from '../types';
 import { computeActiveEvents } from '../hooks/useAudioScheduler';
 import { initialRecordingState, recordingReducer } from '../hooks/useRecordingState';
+import { TRANSLATIONS, Language } from '../i18n';
 
 type TestCase = {
   name: string;
@@ -85,6 +86,39 @@ test('loading MIDI events always exits recording mode and resets the timer', () 
   assert.equal(next.recordingStartTime, 0);
   assert.equal(next.elapsedTime, 0);
   assert.equal(next.recordedEvents, events);
+});
+
+test('every locale defines exactly the same translation keys', () => {
+  const flatten = (value: unknown, prefix = ''): string[] => {
+    if (value === null || typeof value !== 'object') return [prefix];
+    return Object.entries(value as Record<string, unknown>)
+      .flatMap(([key, child]) => flatten(child, prefix ? `${prefix}.${key}` : key));
+  };
+
+  // Sorted comparison so a missing OR extra key in either locale fails loudly.
+  assert.deepEqual(flatten(TRANSLATIONS.zh).sort(), flatten(TRANSLATIONS.en).sort());
+});
+
+test('every described on-screen key is localized in both locales', () => {
+  const codes = ALL_ROWS.flat()
+    .filter(key => Boolean(key.description))
+    .map(key => key.code);
+  assert.ok(codes.length >= 15, 'expected the function-key row to carry descriptions');
+
+  for (const language of ['en', 'zh'] as Language[]) {
+    for (const code of codes) {
+      const text = TRANSLATIONS[language].keyDescriptions[code];
+      assert.ok(text, `${language} has no keyDescriptions entry for ${code}`);
+      assert.notEqual(text, code, `${language} keyDescriptions.${code} was left untranslated`);
+    }
+  }
+});
+
+test('localized templates keep the placeholders their call sites fill in', () => {
+  for (const language of ['en', 'zh'] as Language[]) {
+    assert.match(TRANSLATIONS[language].playNote, /\{note\}/);
+    assert.match(TRANSLATIONS[language].errors.samplesFailed, /\{count\}/);
+  }
 });
 
 for (const { name, run } of tests) {

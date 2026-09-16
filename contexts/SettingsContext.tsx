@@ -16,7 +16,7 @@ interface SettingsContextValue {
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
-const SETTINGS_STORAGE_KEY = 'keypiano.settings.v1';
+export const SETTINGS_STORAGE_KEY = 'keypiano.settings.v1';
 
 const readStoredSettings = (): { language: Language; themeId: ThemeID } => {
   try {

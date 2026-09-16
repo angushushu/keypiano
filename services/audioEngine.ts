@@ -19,10 +19,11 @@ export const INSTRUMENTS = [
 export type InstrumentID = typeof INSTRUMENTS[number]['id'];
 
 export type MetronomeSound = 'beep' | 'click' | 'woodblock';
-export const METRONOME_SOUNDS: {id: MetronomeSound, label: string}[] = [
-    { id: 'beep', label: 'Beep' },
-    { id: 'click', label: 'Click' },
-    { id: 'woodblock', label: 'Wood' }
+// Display labels live in i18n.ts (`t.metronome`), keyed by these ids.
+export const METRONOME_SOUNDS: { id: MetronomeSound }[] = [
+    { id: 'beep' },
+    { id: 'click' },
+    { id: 'woodblock' }
 ];
 
 // Source 1: Salamander Grand Piano (Yamaha C5) - Hosted by Tone.js
@@ -89,30 +90,45 @@ class AudioEngine {
     private scheduleAheadTime: number = 0.1; // s
     private metronomeSound: MetronomeSound = 'beep';
 
+    /**
+     * Downloads and decodes an instrument. Safe to call without a user gesture:
+     * the context stays suspended until `unlock()` runs inside one, but samples
+     * can already be fetched and decoded so the first note is audible at once.
+     */
     public async init(instrumentId: InstrumentID = 'salamander') {
-        // 1. Initialize Audio Context synchronously to capture user gesture
-        if (!this.ctx) {
-            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-            this.ctx = new AudioContextClass();
-            
-            this.compressor = this.ctx.createDynamicsCompressor();
-            this.compressor.threshold.value = -3;
-            this.compressor.knee.value = 5;
-            this.compressor.ratio.value = 4;
-            this.compressor.attack.value = 0.003;
-            this.compressor.release.value = 0.25;
-            this.compressor.connect(this.ctx.destination);
-
-            this.masterGain = this.ctx.createGain();
-            this.masterGain.gain.value = this.volume;
-            this.masterGain.connect(this.compressor);
-        }
-
-        this.unlockAudio();
+        this.ensureContext();
 
         if (this.currentInstrument !== instrumentId || !this.isLoaded) {
             await this.loadInstrument(instrumentId);
         }
+    }
+
+    private ensureContext() {
+        if (this.ctx) return;
+
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        this.ctx = new AudioContextClass();
+
+        this.compressor = this.ctx.createDynamicsCompressor();
+        this.compressor.threshold.value = -3;
+        this.compressor.knee.value = 5;
+        this.compressor.ratio.value = 4;
+        this.compressor.attack.value = 0.003;
+        this.compressor.release.value = 0.25;
+        this.compressor.connect(this.ctx.destination);
+
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.value = this.volume;
+        this.masterGain.connect(this.compressor);
+    }
+
+    /**
+     * Resumes playback. Must be called synchronously from a user gesture --
+     * browsers keep the context suspended until then.
+     */
+    public unlock() {
+        this.ensureContext();
+        this.unlockAudio();
     }
     
     public get currentTime() {
@@ -122,7 +138,8 @@ class AudioEngine {
     private unlockAudio() {
         if (!this.ctx) return;
         if (this.ctx.state === 'suspended') {
-            this.ctx.resume().catch(e => console.error("Audio resume failed", e));
+            // Outside a user gesture this is expected to fail; the next gesture retries.
+            this.ctx.resume().catch(() => {});
         }
         try {
             const buffer = this.ctx.createBuffer(1, 1, 22050);
@@ -267,9 +284,17 @@ class AudioEngine {
             await this.loadSamples(`${GM_BASE}${instrumentId}-mp3/`, map, generation, controller.signal);
         }
 
-        if (generation === this.loadGeneration && !controller.signal.aborted) {
-            this.isLoaded = true;
+        if (generation !== this.loadGeneration || controller.signal.aborted) return;
+
+        // Individual sample failures are swallowed by loadSamples (they are only
+        // recorded in networkErrors), so decoding nothing at all would otherwise
+        // leave the engine marked "loaded" while every note stays silent forever.
+        // Reject instead: the caller then reports an error and stays retryable.
+        if (this.buffers.size === 0) {
+            throw new Error(`No audio samples could be loaded for instrument: ${instrumentId}`);
         }
+
+        this.isLoaded = true;
     }
 
     private midiToStandard(midi: number): string {

@@ -249,7 +249,16 @@ export function useAudioScheduler({
         };
         return () => {
             workerRef.current?.terminate();
+            // Must be cleared: the visual loop re-arms itself while this is
+            // truthy, which would keep requestAnimationFrame running forever
+            // after unmount (and hold the audio voices it references).
+            workerRef.current = null;
             URL.revokeObjectURL(blobUrl);
+            if (animFrameRef.current !== null) {
+                cancelAnimationFrame(animFrameRef.current);
+                animFrameRef.current = null;
+            }
+            audioEngine.stopAllNotes();
         };
     }, []);
 

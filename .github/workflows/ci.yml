@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# This workflow only verifies. Publishing stays a deliberate local action
+# (`npm run deploy`), so a merge to main never touches the live site by itself.
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Quality checks
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      # `npm run build` runs `npm run typecheck` first, so a type error fails here.
+      - name: Typecheck and build
+        run: npm run build

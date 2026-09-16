@@ -1,7 +1,5 @@
 
-export type { Language } from './i18n';
 export type ThemeID = 'dark' | 'light' | 'cyber' | 'fauvism' | 'minimalist' | 'pastel';
-export { TRANSLATIONS } from './i18n';
 
 export interface Theme {
   id: ThemeID;

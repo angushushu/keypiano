@@ -2,7 +2,7 @@
 
 KeyPiano turns a computer keyboard or MIDI keyboard into a polyphonic browser instrument. It is inspired by [FreePiano](https://freepiano.tiwb.com/) and includes an on-screen key map, an 88-key piano, recording, MIDI import/export, practice playback, a metronome, and several sampled instruments.
 
-![KeyPiano keyboard interface](/screenshot.png)
+![KeyPiano keyboard interface](public/screenshot.jpg)
 
 [Open KeyPiano](https://keypiano.app/)
 
@@ -24,15 +24,37 @@ npm test
 npm run build
 ```
 
-`npm run test:watch` reruns the unit tests when source files change.
+`npm run verify` runs lint, tests and a full build in one go — the same sequence CI runs on every push and pull request. `npm run test:watch` reruns the unit tests when source files change.
 
 ## Playing
 
-- Click **Start Engine** once to unlock Web Audio and load the selected instrument.
+- Samples load as soon as the page opens; your first click or keypress unlocks Web Audio, so there is no start screen to get past.
 - Play with the mapped computer keys, the visual computer keyboard, the 88-key piano, or an attached MIDI keyboard.
 - The visual keyboards use one Tab stop each. Use the arrow keys to move between keys, then Enter or Space to play.
 - Open **Settings → MIDI keyboard → Enable MIDI** to request MIDI permission. Permission is requested only when you choose to enable it, and can be retried after denial.
 - Instrument, transpose, and octave changes are locked during recording and playback so a take always uses a consistent mapping and sound.
+
+## Keyboard shortcuts
+
+These work anywhere on the page (the same list is in the in-app **About** dialog):
+
+| Key | Action |
+| --- | --- |
+| `Esc` | Cycle sustain level (off → short → long) |
+| `F1` / `F2` | Octave down / up |
+| `F3` / `F4` | Transpose down / up by a semitone |
+| `F5` / `F6` | Keyboard velocity down / up |
+| `F7` | Toggle the metronome |
+| `F8` | Switch between the stave and keyboard views |
+| `F9` | Play or pause playback |
+| `F10` | Start or stop recording |
+| `F11` | Stop playback and reset the position |
+| `F12` | Reset transpose and octave |
+| `Shift` (held) | Raise left-hand notes by one semitone |
+| `Ctrl` (held) | Lower left-hand notes by one semitone |
+| `Space` | Play the note mapped to the spacebar |
+
+Octave and transpose keys (`F1`–`F4`) are ignored while recording or playing back, so a take always keeps one consistent mapping.
 
 ## Recording and MIDI
 
@@ -52,7 +74,7 @@ Chrome or Edge is recommended when using a physical MIDI keyboard. Audio sample 
 
 ## Privacy
 
-KeyPiano runs in the browser and does not upload performances. The site does not include third-party analytics. Selecting the coffee link or a related project opens that external site in a new tab.
+KeyPiano runs in the browser and does not upload performances. The site uses Google Analytics to count visits; nothing you play is sent to it. Selecting the coffee link or a related project opens that external site in a new tab.
 
 ## Production build
 
@@ -66,5 +88,7 @@ The deploy script publishes `dist/` through `gh-pages`:
 ```bash
 npm run deploy
 ```
+
+`public/CNAME` pins the `keypiano.app` custom domain. It has to live in `public/` so Vite copies it into `dist/` — `gh-pages` replaces the branch contents on every deploy, so a `CNAME` kept only on the branch would be deleted and the domain would stop resolving.
 
 The production build includes the web app manifest, service worker, scalable app icons, sitemap, robots file, and social preview image.

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const root = process.cwd();
@@ -29,13 +29,33 @@ for (const file of uniqueFiles) {
   const lines = text.split(/\r?\n/);
 
   lines.forEach((line, index) => {
+    const at = `${file}:${index + 1}`;
+
     if (/\bas\s+any\b|:\s*any\b|any\[\]/.test(line)) {
-      findings.push(`${file}:${index + 1} avoid explicit any`);
+      findings.push(`${at} avoid explicit any`);
     }
+
     if (/target="_blank"/.test(line) && !/rel="[^"]*\bnoopener\b[^"]*"/.test(line)) {
-      findings.push(`${file}:${index + 1} target="_blank" must include rel="noopener noreferrer"`);
+      findings.push(`${at} target="_blank" must include rel="noopener noreferrer"`);
+    }
+
+    // User-visible attribute text has to come from i18n.ts. Interpolated
+    // values (`attr={...}`) are fine; only hardcoded literals are flagged.
+    const literal = line.match(/\b(title|aria-label|placeholder|alt)="([^"{}]+)"/);
+    if (literal) {
+      findings.push(`${at} ${literal[1]}="${literal[2]}" must be a localized string from i18n.ts`);
     }
   });
+}
+
+// Vite copies public/ into dist/, so a file kept in both the repo root and
+// public/ can silently drift: editing the root copy changes nothing that ships.
+// (The sitemap, robots.txt and the GA snippet were each lost this way.)
+for (const entry of readdirSync(root, { withFileTypes: true })) {
+  if (!entry.isFile()) continue;
+  if (existsSync(join(root, 'public', entry.name))) {
+    findings.push(`${entry.name} exists in both the repo root and public/; keep only the public/ copy`);
+  }
 }
 
 if (findings.length > 0) {

@@ -9,7 +9,6 @@ import Toolbar from './components/Toolbar';
 import StatusBar from './components/StatusBar';
 import SettingsPanel from './components/SettingsPanel';
 import InfoModal from './components/InfoModal';
-import StartScreen from './components/StartScreen';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { SynthProvider, useSynth } from './contexts/SynthContext';
 import { MetronomeProvider, useMetronome } from './contexts/MetronomeContext';
@@ -19,7 +18,7 @@ import {
   ALL_ROWS,
   getTransposedNote
 } from './constants';
-import { Minimize } from 'lucide-react';
+import { Loader2, Minimize } from 'lucide-react';
 import { TriggerNote } from './types';
 import { useMidiDevice } from './hooks/useMidiDevice';
 import { useAudioScheduler } from './hooks/useAudioScheduler';
@@ -44,7 +43,7 @@ const isInteractiveTarget = (target: EventTarget | null): boolean => {
 const AppInner: React.FC = () => {
   const { theme, t, isZenMode, setIsZenMode } = useSettings();
   const {
-    isAudioStarted, currentInstrument, keyVelocity, setKeyVelocity,
+    isLoading, ensureAudioStarted, currentInstrument, keyVelocity, setKeyVelocity,
     transposeBase, setTransposeBase, octaveShift, setOctaveShift,
     cycleSustain, synthStateRef, toast, setToast,
   } = useSynth();
@@ -197,15 +196,24 @@ const AppInner: React.FC = () => {
       const totalTranspose = synthStateRef.current.transposeBase + (synthStateRef.current.octaveShift * 12) + effectiveTranspose;
       const vel = Math.min(127, Math.max(0, keyVelocity));
       const finalNote = getTransposedNote(note, totalTranspose);
-      audioEngine.playNote(note, totalTranspose, vel);
       activeKeyParamsRef.current.set(code, { note, transpose: totalTranspose });
+      if (audioEngine.isLoaded) {
+        audioEngine.playNote(note, totalTranspose, vel);
+      } else {
+        // First interaction: unlock the engine, then sound the note if still held.
+        void ensureAudioStarted().then(isReady => {
+          if (isReady && activeKeyParamsRef.current.has(code)) {
+            audioEngine.playNote(note, totalTranspose, vel);
+          }
+        });
+      }
       setTriggerNotes(prev => [...prev, { note: finalNote, time: Date.now(), type: 'user' }]);
       if (isRecording) {
         recordingRef.current.push({ time: Date.now() - recordingStartTime, type: 'on', note, code, transpose: totalTranspose, instrumentId: currentInstrument, velocity: vel });
       }
     }
     setActiveKeys(prev => { const n = new Set(prev); n.add(code); return n; });
-  }, [isRecording, recordingStartTime, currentInstrument, keyVelocity, currentKeyMap, getEffectiveTranspose, synthStateRef, setActiveKeys, setTriggerNotes]);
+  }, [isRecording, recordingStartTime, currentInstrument, keyVelocity, currentKeyMap, getEffectiveTranspose, ensureAudioStarted, synthStateRef, setActiveKeys, setTriggerNotes]);
 
   const stopNoteByCode = useCallback((code: string) => {
     const activeParams = activeKeyParamsRef.current.get(code);
@@ -223,7 +231,16 @@ const AppInner: React.FC = () => {
     if (activeMouseNotesRef.current.has(noteName)) return;
     activeMouseNotesRef.current.add(noteName);
     const velocity = Math.min(127, Math.max(0, keyVelocity));
-    audioEngine.playNote(noteName, 0, velocity);
+    if (audioEngine.isLoaded) {
+      audioEngine.playNote(noteName, 0, velocity);
+    } else {
+      // First interaction: unlock the engine, then sound the note if still held.
+      void ensureAudioStarted().then(isReady => {
+        if (isReady && activeMouseNotesRef.current.has(noteName)) {
+          audioEngine.playNote(noteName, 0, velocity);
+        }
+      });
+    }
     setTriggerNotes(prev => [...prev, { note: noteName, time: Date.now(), type: 'user' }]);
     setActiveMouseNotes(new Set(activeMouseNotesRef.current));
     if (isRecording) {
@@ -237,7 +254,7 @@ const AppInner: React.FC = () => {
         velocity,
       });
     }
-  }, [currentInstrument, isRecording, keyVelocity, recordingRef, recordingStartTime, setTriggerNotes]);
+  }, [currentInstrument, ensureAudioStarted, isRecording, keyVelocity, recordingRef, recordingStartTime, setTriggerNotes]);
 
   const stopNoteByName = useCallback((noteName: string) => {
     if (!activeMouseNotesRef.current.has(noteName)) return;
@@ -317,6 +334,19 @@ const AppInner: React.FC = () => {
     setActiveMidiNotes(new Set());
   }, [isPortraitMobile, resetKeyboardState]);
 
+  // Browsers keep audio suspended until a user gesture, so unlock on the first
+  // one regardless of where it lands (a key, a toolbar button, the metronome).
+  useEffect(() => {
+    const unlockAudio = () => { void ensureAudioStarted(); };
+    const options = { capture: true, once: true } as const;
+    window.addEventListener('pointerdown', unlockAudio, options);
+    window.addEventListener('keydown', unlockAudio, options);
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio, { capture: true });
+      window.removeEventListener('keydown', unlockAudio, { capture: true });
+    };
+  }, [ensureAudioStarted]);
+
   // Window event listeners (registered once)
   useEffect(() => {
     const onKeyD = (e: KeyboardEvent) => {
@@ -382,19 +412,10 @@ const AppInner: React.FC = () => {
     );
   }
 
-  if (!isAudioStarted) {
-    return (
-      <div className={`h-screen w-screen ${theme.appBg}`}>
-        {toast && <Toast message={toast.message} variant={toast.variant} onDismiss={() => setToast(null)} />}
-        <StartScreen />
-      </div>
-    );
-  }
-
   return (
     <div className={`h-screen w-screen ${theme.appBg} flex flex-col overflow-hidden font-sans select-none relative transition-colors duration-300`}>
       <input type="file" ref={fileInputRef} accept=".mid,.midi" onChange={handleFileChange} className="hidden" />
-      {toast && <Toast message={toast.message} variant={toast.variant} onDismiss={() => setToast(null)} />}
+      {toast && <Toast message={toast.message} variant={toast.variant} dismissLabel={t.dismiss} onDismiss={() => setToast(null)} />}
 
       {isZenMode && (
         <button onClick={() => setIsZenMode(false)} className="absolute top-4 right-4 z-50 p-2 bg-black/50 text-white/50 hover:text-white rounded hover:bg-black/70 transition-colors backdrop-blur-md" title={t.exitZenMode} aria-label={t.exitZenMode}>
@@ -450,6 +471,8 @@ const AppInner: React.FC = () => {
                     return (
                       <VirtualKey key={k.code + idx} {...k} note={displayedNote}
                         customLabel={k.code === 'Coffee' ? t.buyCoffee : k.customLabel}
+                        description={t.keyDescriptions[k.code] ?? k.description}
+                        playNoteTemplate={t.playNote}
                         isActive={activeKeys.has(k.code) || (!isPracticeMode && playbackKeys.has(k.code)) || (k.code === 'ShiftLeft' && (tempTranspose !== 0 ? tempTranspose : (isPlayingBack ? playbackTempTranspose : 0)) === 1) || (k.code === 'ControlLeft' && (tempTranspose !== 0 ? tempTranspose : (isPlayingBack ? playbackTempTranspose : 0)) === -1)}
                         isPlaybackActive={isPracticeMode && playbackKeys.has(k.code)} isUpcoming={isPracticeMode && upcomingKeys.has(k.code)}
                         onMouseDown={playNoteByCode} onMouseUp={stopNoteByCode} theme={theme}
@@ -480,7 +503,17 @@ const AppInner: React.FC = () => {
       )}
 
       <InfoModal show={showInfo} onClose={closeInfo} returnFocusRef={infoButtonRef} />
-      <StartScreen />
+
+      {isLoading && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="absolute bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg bg-black/70 px-3 py-2 text-xs text-white shadow-lg backdrop-blur-md pointer-events-none"
+        >
+          <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />
+          <span>{t.loading}</span>
+        </div>
+      )}
     </div>
   );
 };

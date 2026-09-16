@@ -3,14 +3,17 @@ import { audioEngine, SustainLevel, InstrumentID, INSTRUMENTS } from '../service
 import { useSettings } from './SettingsContext';
 
 interface SynthContextValue {
-  isAudioStarted: boolean;
   isLoading: boolean;
   setIsLoading: (v: boolean) => void;
   currentInstrument: InstrumentID;
-  selectedStartInstrument: InstrumentID;
-  setSelectedStartInstrument: (id: InstrumentID) => void;
   handleInstrumentChange: (id: InstrumentID) => Promise<void>;
-  startAudio: () => Promise<void>;
+  /**
+   * Resumes the audio context, which browsers keep suspended until a user
+   * gesture. Must be called synchronously from that gesture. Idempotent:
+   * it reuses the sample load already running since mount, and resolves to
+   * true once notes can actually sound.
+   */
+  ensureAudioStarted: () => Promise<boolean>;
   transposeBase: number;
   setTransposeBase: (v: number | ((p: number) => number)) => void;
   octaveShift: number;
@@ -64,10 +67,8 @@ export const SynthProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const { t } = useSettings();
   const [initialPreferences] = useState(readSynthPreferences);
 
-  const [isAudioStarted, setIsAudioStarted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [currentInstrument, setCurrentInstrument] = useState<InstrumentID>(initialPreferences.instrument);
-  const [selectedStartInstrument, setSelectedStartInstrument] = useState<InstrumentID>(initialPreferences.instrument);
   const [toast, setToast] = useState<{ message: string; variant: 'warning' | 'error' | 'info' } | null>(null);
 
   const [transposeBase, setTransposeBase] = useState(0);
@@ -78,10 +79,16 @@ export const SynthProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const synthStateRef = useRef({ transposeBase, octaveShift });
   const instrumentRequestRef = useRef(0);
+  const loadPromiseRef = useRef<Promise<boolean> | null>(null);
+  const currentInstrumentRef = useRef(currentInstrument);
 
   useEffect(() => {
     synthStateRef.current = { transposeBase, octaveShift };
   }, [transposeBase, octaveShift]);
+
+  useEffect(() => {
+    currentInstrumentRef.current = currentInstrument;
+  }, [currentInstrument]);
 
   useEffect(() => {
     audioEngine.setVolume(masterVolume);
@@ -91,7 +98,7 @@ export const SynthProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     try {
       localStorage.setItem(SYNTH_STORAGE_KEY, JSON.stringify({
-        instrument: selectedStartInstrument,
+        instrument: currentInstrument,
         masterVolume,
         keyVelocity,
         sustainLevel,
@@ -99,79 +106,77 @@ export const SynthProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {
       // Preferences remain available for the current session.
     }
-  }, [keyVelocity, masterVolume, selectedStartInstrument, sustainLevel]);
+  }, [currentInstrument, keyVelocity, masterVolume, sustainLevel]);
 
   const cycleSustain = useCallback(() => {
     const levels: SustainLevel[] = ['OFF', 'SHORT', 'LONG'];
     setSustainLevel(prev => levels[(levels.indexOf(prev) + 1) % levels.length]);
   }, []);
 
-  const startAudio = useCallback(async () => {
-    const requestId = ++instrumentRequestRef.current;
-    setIsLoading(true);
-    setToast(null);
-    try {
-      await audioEngine.init(selectedStartInstrument);
-      if (requestId === instrumentRequestRef.current) {
-        setCurrentInstrument(selectedStartInstrument);
-        if (audioEngine.networkErrors.length > 0) {
-          setToast({
-            message: `${audioEngine.networkErrors.length} samples failed to load. Using pitch-shift fallback.`,
-            variant: 'warning',
-          });
-        }
-        setIsAudioStarted(true);
-      }
-    } catch {
-      if (requestId === instrumentRequestRef.current) {
-        setToast({ message: t.errors.audioInitFailed, variant: 'error' });
-      }
-    } finally {
-      if (requestId === instrumentRequestRef.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [selectedStartInstrument, t.errors.audioInitFailed]);
-
-  const handleInstrumentChange = useCallback(async (id: InstrumentID) => {
-    if (id === currentInstrument) return;
+  const loadInstrument = useCallback(async (id: InstrumentID): Promise<boolean> => {
     const requestId = ++instrumentRequestRef.current;
     setIsLoading(true);
     setToast(null);
     try {
       await audioEngine.init(id);
-      if (requestId === instrumentRequestRef.current) {
-        setCurrentInstrument(id);
-        setSelectedStartInstrument(id);
-        if (audioEngine.networkErrors.length > 0) {
-          setToast({
-            message: `${audioEngine.networkErrors.length} samples failed to load. Using fallback.`,
-            variant: 'warning',
-          });
-        }
+      if (requestId !== instrumentRequestRef.current) return false;
+      setCurrentInstrument(id);
+      if (audioEngine.networkErrors.length > 0) {
+        setToast({
+          message: t.errors.samplesFailed.replace('{count}', String(audioEngine.networkErrors.length)),
+          variant: 'warning',
+        });
       }
+      return true;
     } catch {
       if (requestId === instrumentRequestRef.current) {
         setToast({ message: t.errors.audioInitFailed, variant: 'error' });
       }
+      return false;
     } finally {
       if (requestId === instrumentRequestRef.current) {
         setIsLoading(false);
       }
     }
-  }, [currentInstrument, t.errors.audioInitFailed]);
+  }, [t.errors.audioInitFailed, t.errors.samplesFailed]);
+
+  const startLoading = useCallback((id: InstrumentID) => {
+    const loading = loadInstrument(id).then(ok => {
+      // Let a later attempt retry after a failed download.
+      if (!ok && loadPromiseRef.current === loading) loadPromiseRef.current = null;
+      return ok;
+    });
+    loadPromiseRef.current = loading;
+    return loading;
+  }, [loadInstrument]);
+
+  // Fetch and decode samples up front so the very first note is audible. This
+  // needs no user gesture -- only resuming the context does.
+  useEffect(() => {
+    if (!loadPromiseRef.current) startLoading(currentInstrumentRef.current);
+  }, [startLoading]);
+
+  const ensureAudioStarted = useCallback((): Promise<boolean> => {
+    audioEngine.unlock();
+    return loadPromiseRef.current ?? startLoading(currentInstrumentRef.current);
+  }, [startLoading]);
+
+  const handleInstrumentChange = useCallback(async (id: InstrumentID) => {
+    if (id === currentInstrumentRef.current && audioEngine.isLoaded) return;
+    // Picking an instrument is a user gesture, so it can also unlock playback.
+    audioEngine.unlock();
+    await startLoading(id);
+  }, [startLoading]);
 
   const value = useMemo(() => ({
-    isAudioStarted, isLoading, setIsLoading,
-    currentInstrument, selectedStartInstrument, setSelectedStartInstrument,
-    handleInstrumentChange, startAudio,
+    isLoading, setIsLoading,
+    currentInstrument, handleInstrumentChange, ensureAudioStarted,
     transposeBase, setTransposeBase, octaveShift, setOctaveShift,
     masterVolume, setMasterVolume, keyVelocity, setKeyVelocity,
     sustainLevel, setSustainLevel, cycleSustain,
     synthStateRef, toast, setToast,
   }), [
-    isAudioStarted, isLoading, currentInstrument, selectedStartInstrument,
-    handleInstrumentChange, startAudio,
+    isLoading, currentInstrument, handleInstrumentChange, ensureAudioStarted,
     transposeBase, octaveShift, masterVolume, keyVelocity,
     sustainLevel, cycleSustain, toast,
   ]);
