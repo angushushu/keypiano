@@ -8,6 +8,8 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-27
+
 ### Added
 
 - **Settings → Sample server**: download samples from the upstream GitHub
