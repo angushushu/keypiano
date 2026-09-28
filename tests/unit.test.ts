@@ -6,6 +6,7 @@ import { RecordedEvent } from '../types';
 import { assignFingering, computeActiveEvents, keysForEvent } from '../hooks/useAudioScheduler';
 import { assignPiece, suggestOctave } from '../services/autoFingering';
 import { KEYMAP_PRESETS } from '../constants';
+import { THEMES, ThemePalette, themeCssVariables } from '../theme';
 import { initialRecordingState, recordingReducer } from '../hooks/useRecordingState';
 import { TRANSLATIONS, Language } from '../i18n';
 import { SAMPLE_SOURCES, SampleLibrary, getSampleBaseUrl, isSampleSourceID } from '../services/sampleSources';
@@ -440,6 +441,60 @@ test('assignFingering lights the assigned key and its modifier', () => {
   const { activeKeys, activeNotes } = assignFingering(new Map([['a', sharp]]), assignments);
   assert.deepEqual([...activeNotes], ['F#4']);
   assert.deepEqual([...activeKeys].sort(), ['KeyR', 'ShiftLeft']);
+});
+
+// WCAG relative-luminance contrast between two #rrggbb colours.
+const contrast = (a: string, b: string) => {
+  const luminance = (hex: string) => {
+    const n = Number.parseInt(hex.slice(1), 16);
+    const [r, g, bl] = [n >> 16, (n >> 8) & 255, n & 255].map(v => {
+      const c = v / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (light + 0.05) / (dark + 0.05);
+};
+
+test('every theme keeps text readable on the surface behind it', () => {
+  const textPairs: [keyof ThemePalette, keyof ThemePalette][] = [
+    ['text', 'barBg'], ['text', 'panelBg'], ['text', 'fieldBg'], ['textMuted', 'barBg'],
+    ['keyText', 'keyBg'], ['playedInk', 'played'], ['guideInk', 'guide'], ['staveInk', 'staveBg'],
+  ];
+  for (const theme of Object.values(THEMES)) {
+    for (const [fg, bg] of textPairs) {
+      const ratio = contrast(theme.palette[fg], theme.palette[bg]);
+      assert.ok(ratio >= 4.5, `${theme.id}: ${fg} on ${bg} is ${ratio.toFixed(2)}:1, below 4.5:1`);
+    }
+  }
+});
+
+test('every theme keeps lit keys and notes distinguishable', () => {
+  for (const theme of Object.values(THEMES)) {
+    const p = theme.palette;
+    assert.ok(contrast(p.playedDeep, p.pianoBlack) >= 3, `${theme.id}: a pressed black key must stand out from unpressed ones`);
+    assert.ok(contrast(p.played, p.waterfallBg) >= 2.5, `${theme.id}: waterfall notes must show on the waterfall background`);
+    if (p.keyboardBg.startsWith('#')) {
+      assert.ok(contrast(p.keyboardAccent, p.keyboardBg) >= 3, `${theme.id}: the support link must read on the keyboard background`);
+    }
+  }
+});
+
+test('theme colours used by canvas drawing are plain 6-digit hex', () => {
+  // The waterfall appends a two-digit alpha to these values.
+  for (const theme of Object.values(THEMES)) {
+    for (const key of ['played', 'playedDeep', 'guide', 'staveInk'] as const) {
+      assert.match(theme.palette[key], /^#[0-9a-f]{6}$/i, `${theme.id}.${key}`);
+    }
+  }
+});
+
+test('themeCssVariables exposes every palette value as a --kp- variable', () => {
+  const vars = themeCssVariables(THEMES.night);
+  assert.equal(vars['--kp-key-bg'], THEMES.night.palette.keyBg);
+  assert.equal(vars['--kp-played-deep'], THEMES.night.palette.playedDeep);
+  assert.equal(Object.keys(vars).length, Object.keys(THEMES.night.palette).length);
 });
 
 for (const { name, run } of tests) {

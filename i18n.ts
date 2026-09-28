@@ -1,4 +1,5 @@
 import type { SampleSourceID } from './services/sampleSources';
+import type { ThemeID } from './theme';
 
 export type Language = 'en' | 'zh';
 
@@ -113,14 +114,7 @@ interface TranslationSet {
     salamander_hint: string;
     standard_hint: string;
   };
-  themes: {
-    dark: string;
-    light: string;
-    cyber: string;
-    fauvism: string;
-    minimalist: string;
-    pastel: string;
-  };
+  themes: Record<ThemeID, string>;
   metronome: {
     beep: string;
     click: string;
@@ -280,8 +274,11 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
       standard_hint: 'Faster load time. Lower quality.'
     },
     themes: {
-      dark: 'Dark',
-      light: 'Light',
+      night: 'Night',
+      day: 'Day',
+      studio: 'Studio',
+      dark: 'Dark (classic)',
+      light: 'Light (classic)',
       cyber: 'Cyber',
       fauvism: 'Fauvism',
       minimalist: 'Minimalist',
@@ -441,8 +438,11 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
       standard_hint: '加载速度快。音质较低。'
     },
     themes: {
-      dark: '暗色',
-      light: '亮色',
+      night: '夜',
+      day: '昼',
+      studio: '琴房',
+      dark: '暗色（经典）',
+      light: '亮色（经典）',
       cyber: '赛博朋克',
       fauvism: '野兽派',
       minimalist: '极简',

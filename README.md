@@ -34,6 +34,12 @@ npm run build
 - Open **Settings → MIDI keyboard → Enable MIDI** to request MIDI permission. Permission is requested only when you choose to enable it, and can be retried after denial.
 - Instrument, transpose, and octave changes are locked during recording and playback so a take always uses a consistent mapping and sound.
 
+## Themes
+
+**Settings → Theme** offers Night (the default), Day and Studio, plus remade versions of the original Dark, Light, Cyber, Fauvism, Minimalist and Pastel themes. Every theme uses one colour for a key you are pressing and one for a key practice mode wants next, on the computer keyboard, the piano, the waterfall and the stave alike, and toolbar icons only take colour when they are switched on.
+
+A theme is a palette in `theme.ts`: its values become `--kp-*` CSS variables on the page root, and every component styles itself with the shared classes that read them. Unit tests check each palette's text contrast (at least 4.5:1) and that pressed black keys and waterfall notes stand out.
+
 ## Keyboard shortcuts
 
 These work anywhere on the page (the same list is in the in-app **About** dialog):

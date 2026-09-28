@@ -146,7 +146,7 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
             const visibleEndTime = frameTime + (frameLookahead / frameSpeed);
 
             // Draw grid lines separating white keys for reference
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.strokeStyle = 'rgba(128, 128, 128, 0.12)';
             ctx.lineWidth = 1;
             ctx.beginPath();
             const whiteKeyCount = 52;
@@ -205,7 +205,7 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
 
             // Draw Hit Line at the bottom
             ctx.shadowBlur = 0;
-            ctx.fillStyle = 'rgba(255,255,255,0.8)';
+            ctx.fillStyle = frameTheme?.palette.played ?? '#f2b544';
             ctx.fillRect(0, height - 3, width, 3);
 
             animationFrameId = requestAnimationFrame(render);
@@ -220,7 +220,7 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
     }, [keyLayout]);
 
     return (
-        <div className="w-full h-full p-1 rounded bg-[#1a1a1a]">
+        <div className="w-full h-full p-1 rounded bg-[color:var(--kp-waterfall-bg)]">
             <canvas 
                 ref={canvasRef} 
                 className="w-full h-full block rounded-t"

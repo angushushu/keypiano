@@ -79,7 +79,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ show, onClose, returnFocusRef }) 
         className={`w-full max-w-lg max-h-[calc(100vh-2rem)] rounded-lg shadow-2xl border flex flex-col overflow-hidden ${theme.panelBg} ${theme.panelBorder}`}
       >
         <div className={`flex items-center justify-between p-4 border-b ${theme.panelBorder} ${theme.toolbarBg}`}>
-          <div className="flex items-center gap-2 text-yellow-500 font-bold"><Info className="w-5 h-5" /><span id="about-dialog-title">{t.aboutTitle}</span></div>
+          <div className={`flex items-center gap-2 font-bold ${theme.accentText}`}><Info className="w-5 h-5" /><span id="about-dialog-title">{t.aboutTitle}</span></div>
           <button
             ref={closeButtonRef}
             onClick={() => {
@@ -87,7 +87,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ show, onClose, returnFocusRef }) 
               returnFocusRef?.current?.focus();
             }}
             aria-label={t.close}
-            className="rounded p-2 text-current opacity-60 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+            className="rounded p-2 text-current opacity-60 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-[color:var(--kp-played)]"
           ><X className="w-5 h-5" /></button>
         </div>
         <div className={`p-6 text-sm leading-relaxed overflow-y-auto ${theme.toolbarText}`}>
@@ -98,7 +98,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ show, onClose, returnFocusRef }) 
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
               {SHORTCUT_KEYS.map(({ code, keys }) => (
                 <div key={code} className="flex items-baseline gap-2 text-xs">
-                  <dt className="shrink-0 rounded bg-black/30 px-1.5 py-0.5 font-mono text-[10px]">{keys}</dt>
+                  <dt className="shrink-0 rounded bg-[color:var(--kp-field-bg)] px-1.5 py-0.5 font-mono text-[10px]">{keys}</dt>
                   <dd className="opacity-70">{t.keyDescriptions[code]}</dd>
                 </div>
               ))}
@@ -107,9 +107,9 @@ const InfoModal: React.FC<InfoModalProps> = ({ show, onClose, returnFocusRef }) 
           </div>
           <div className={`border-t pt-4 mt-4 flex flex-col gap-2 ${theme.panelBorder}`}>
             <div className="text-[10px] font-bold text-current opacity-60 uppercase tracking-wider mb-1">{t.relatedProjects}</div>
-            <a href="https://github.com/angushushu/keypiano" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-current hover:text-yellow-500 transition-colors text-xs font-medium"><Github className="w-3.5 h-3.5" /> <span>{t.sourceCode}</span></a>
-            <a href="https://github.com/angushushu/freepyano" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-current hover:text-yellow-500 transition-colors text-xs font-medium"><Github className="w-3.5 h-3.5" /> <span>{t.desktopRemake}</span></a>
-            <a href="https://freepiano.tiwb.com/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-current hover:text-yellow-500 transition-colors text-xs font-medium"><Globe className="w-3.5 h-3.5" /> <span>{t.originalSite}</span></a>
+            <a href="https://github.com/angushushu/keypiano" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-current hover:text-[color:var(--kp-played)] transition-colors text-xs font-medium"><Github className="w-3.5 h-3.5" /> <span>{t.sourceCode}</span></a>
+            <a href="https://github.com/angushushu/freepyano" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-current hover:text-[color:var(--kp-played)] transition-colors text-xs font-medium"><Github className="w-3.5 h-3.5" /> <span>{t.desktopRemake}</span></a>
+            <a href="https://freepiano.tiwb.com/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-current hover:text-[color:var(--kp-played)] transition-colors text-xs font-medium"><Globe className="w-3.5 h-3.5" /> <span>{t.originalSite}</span></a>
           </div>
         </div>
       </div>

@@ -11,8 +11,7 @@ export const STAVE_VB_W = 759.808;
 export const STAVE_VB_H = 172.032;
 
 const StaveBackgroundSVG: React.FC<{ theme: Theme }> = React.memo(({ theme }) => {
-    const isLight = theme.isLight;
-    const inkColor = isLight ? '#111' : '#e4e4e7';
+    const inkColor = theme.palette.staveInk;
     
     return (
         <svg 

@@ -74,11 +74,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         <select ref={firstSelectRef} id="keymap-select" value={keymapId} onChange={(e) => {
           const value = e.target.value;
           if (value in KEYMAP_PRESETS) setKeymapId(value as KeymapID);
-        }} className={`bg-black/20 text-current text-xs p-1.5 rounded border outline-none focus:border-yellow-500 cursor-pointer ${theme.panelBorder} ${theme.toolbarText}`}>
+        }} className={`text-xs p-1.5 rounded border outline-none focus:border-[color:var(--kp-played)] cursor-pointer ${theme.field}`}>
           {Object.entries(KEYMAP_PRESETS).map(([id, cfg]) => (<option key={id} value={id}>{cfg.name}</option>))}
         </select>
         <label className={`flex items-start gap-2 text-xs px-1 mt-1 cursor-pointer ${theme.toolbarText}`}>
-          <input type="checkbox" checked={useNumpadHints} onChange={(e) => setUseNumpadHints(e.target.checked)} className="mt-0.5 accent-yellow-500" />
+          <input type="checkbox" checked={useNumpadHints} onChange={(e) => setUseNumpadHints(e.target.checked)} className="mt-0.5 accent-[color:var(--kp-played)]" />
           <span className="flex flex-col">
             <span>{t.numpadHints.label}</span>
             <span className="text-[11px] opacity-70">{t.numpadHints.hint}</span>
@@ -91,7 +91,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         <select id="theme-select" value={themeId} onChange={(e) => {
           const value = e.target.value;
           if (isThemeID(value)) setThemeId(value);
-        }} className={`bg-black/20 text-current text-xs p-1.5 rounded border outline-none focus:border-yellow-500 cursor-pointer ${theme.panelBorder} ${theme.toolbarText}`}>
+        }} className={`text-xs p-1.5 rounded border outline-none focus:border-[color:var(--kp-played)] cursor-pointer ${theme.field}`}>
           {Object.values(THEMES).map(th => (<option key={th.id} value={th.id}>{t.themes[th.id]}</option>))}
         </select>
       </div>
@@ -100,7 +100,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         <select id="language-select" value={language} onChange={(e) => {
           const value = e.target.value;
           if (isLanguage(value)) setLanguage(value);
-        }} className={`bg-black/20 text-current text-xs p-1.5 rounded border outline-none focus:border-yellow-500 cursor-pointer ${theme.panelBorder} ${theme.toolbarText}`}>
+        }} className={`text-xs p-1.5 rounded border outline-none focus:border-[color:var(--kp-played)] cursor-pointer ${theme.field}`}>
           <option value="en">English</option><option value="zh">中文</option>
         </select>
       </div>
@@ -110,7 +110,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         <select id="sample-source-select" value={sampleSource} disabled={isLoading || isSampleSourceLocked} aria-describedby="sample-source-hint" onChange={(e) => {
           const value = e.target.value;
           if (isSampleSourceID(value)) void handleSampleSourceChange(value);
-        }} className={`bg-black/20 text-current text-xs p-1.5 rounded border outline-none focus:border-yellow-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${theme.panelBorder} ${theme.toolbarText}`}>
+        }} className={`text-xs p-1.5 rounded border outline-none focus:border-[color:var(--kp-played)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${theme.field}`}>
           {SAMPLE_SOURCES.map(source => (<option key={source.id} value={source.id}>{t.sampleSource.options[source.id]}</option>))}
         </select>
         <p id="sample-source-hint" className={`text-[11px] px-1 ${theme.toolbarText} opacity-70`}>{t.sampleSource.hint}</p>
@@ -130,7 +130,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             type="button"
             disabled={midiStatus === 'requesting'}
             onClick={() => void requestMidiAccess()}
-            className="rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500 disabled:cursor-wait disabled:opacity-50"
+            className={`rounded px-3 py-2 text-xs font-semibold hover:opacity-90 disabled:cursor-wait disabled:opacity-50 ${theme.controlOn}`}
           >
             {midiStatus === 'denied' ? t.midi.retry : t.midi.enable}
           </button>

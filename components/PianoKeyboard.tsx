@@ -1,6 +1,6 @@
 
 import React, { useRef, useMemo, useState } from 'react';
-import { Theme } from '../theme';
+import { DEFAULT_THEME_ID, THEMES, Theme } from '../theme';
 import { NOTE_NAMES } from '../constants';
 import { guideFillOpacity } from '../services/practiceGuide';
 
@@ -24,17 +24,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
     theme,
     ariaLabel = '88-key piano keyboard',
 }) => {
-    const t = theme || {
-        pianoBg: 'bg-black',
-        pianoWhiteKey: 'bg-gradient-to-b from-white to-gray-200',
-        pianoWhiteKeyActive: 'bg-yellow-400',
-        pianoWhiteKeyPlayback: 'bg-green-300',
-        pianoWhiteKeyGuide: 'bg-green-300',
-        pianoBlackKey: 'bg-gradient-to-b from-gray-800 to-black',
-        pianoBlackKeyActive: 'bg-yellow-600',
-        pianoBlackKeyPlayback: 'bg-green-600',
-        pianoBlackKeyGuide: 'bg-green-600'
-    };
+    const t = theme ?? THEMES[DEFAULT_THEME_ID];
 
     const { allKeys, whiteKeys, midiToWhiteIdx } = useMemo(() => {
         const keys = [];
@@ -187,7 +177,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
                          aria-label={`${k.noteId}${k.note === 'C' ? ` (C${k.octave})` : ''}`}
                          aria-pressed={isUserActive || isPlaybackActive || false}
                          tabIndex={focusedNote === k.noteId ? 0 : -1}
-                         className={`flex-1 border-l border-b border-r border-gray-400 rounded-b-[4px] relative focus:outline-none focus:ring-2 focus:ring-inset focus:ring-yellow-500 ${keyClass} ${extraClass}`}
+                         className={`flex-1 border-l border-b border-r rounded-b-[4px] relative focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[color:var(--kp-guide)] ${keyClass} ${extraClass}`}
                          onFocus={() => setFocusedNote(k.noteId)}
                          onKeyDown={(e) => handleKeyboardDown(e, k.noteId)}
                          onKeyUp={(e) => handleKeyboardUp(e, k.noteId)}
@@ -202,7 +192,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
                      >
                         <span aria-hidden="true" className={`absolute inset-0 rounded-b-[4px] pointer-events-none transition-opacity duration-150 ${t.pianoWhiteKeyGuide}`} style={{ opacity: guideOpacity }} />
                         {k.note === 'C' && (
-                            <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-gray-500 font-bold hidden sm:block">C{k.octave}</span>
+                            <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-[color:var(--kp-key-label)] font-bold hidden sm:block">C{k.octave}</span>
                         )}
                      </div>
                  );
@@ -241,7 +231,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
                              aria-label={k.noteId}
                              aria-pressed={isUserActive || isPlaybackActive || false}
                              tabIndex={focusedNote === k.noteId ? 0 : -1}
-                             className={`absolute h-[64%] border-b-4 rounded-b-[3px] z-10 pointer-events-auto focus:outline-none focus:ring-2 focus:ring-inset focus:ring-yellow-400 ${keyClass} ${extraClass}`}
+                             className={`absolute h-[64%] border-b-4 rounded-b-[3px] z-10 pointer-events-auto focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[color:var(--kp-guide)] ${keyClass} ${extraClass}`}
                              style={{
                                  left: `${leftPct}%`,
                                  width: `${blackWidthPct}%`

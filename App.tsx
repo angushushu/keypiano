@@ -529,7 +529,7 @@ const AppInner: React.FC = () => {
       {toast && <Toast message={toast.message} variant={toast.variant} dismissLabel={t.dismiss} onDismiss={() => setToast(null)} />}
 
       {isZenMode && (
-        <button onClick={() => setIsZenMode(false)} className="absolute top-4 right-4 z-50 p-2 bg-black/50 text-white/50 hover:text-white rounded hover:bg-black/70 transition-colors backdrop-blur-md" title={t.exitZenMode} aria-label={t.exitZenMode}>
+        <button onClick={() => setIsZenMode(false)} className={`absolute top-4 right-4 z-50 p-2 rounded border transition-colors ${theme.panelBg} ${theme.panelBorder} ${theme.controlOff}`} title={t.exitZenMode} aria-label={t.exitZenMode}>
           <Minimize className="w-6 h-6" />
         </button>
       )}
@@ -582,22 +582,22 @@ const AppInner: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col relative overflow-hidden">
         {octaveAdvice && !isPlayingBack && !isRecording && (
-          <div role="status" aria-live="polite" className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 rounded-full bg-amber-700/90 px-4 py-1.5 text-xs text-white shadow-lg backdrop-blur-md">
+          <div role="status" aria-live="polite" className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 rounded-full bg-[color:var(--kp-played)] text-[color:var(--kp-played-ink)] px-4 py-1.5 text-xs shadow-lg">
             <span>
               {t.practiceRange.message
                 .replace('{count}', String(octaveAdvice.unreachableNow))
                 .replace('{octave}', formatOctave(octaveAdvice.octave))
                 .replace('{after}', String(octaveAdvice.unreachableThen))}
             </span>
-            <button type="button" onMouseDown={preventMouseFocus} onClick={() => setOctaveShift(octaveAdvice.octave)} className="rounded-full bg-white/15 px-2 py-0.5 hover:bg-white/30">
+            <button type="button" onMouseDown={preventMouseFocus} onClick={() => setOctaveShift(octaveAdvice.octave)} className="rounded-full border border-current px-2 py-0.5 hover:opacity-80">
               {t.practiceRange.apply}
             </button>
           </div>
         )}
         {waitingRemaining !== null && (
-          <div role="status" aria-live="polite" className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 rounded-full bg-purple-700/90 px-4 py-1.5 text-xs text-white shadow-lg backdrop-blur-md">
+          <div role="status" aria-live="polite" className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 rounded-full bg-[color:var(--kp-guide)] text-[color:var(--kp-guide-ink)] px-4 py-1.5 text-xs shadow-lg">
             <span>{t.waitMode.waiting.replace('{count}', String(waitingRemaining))}</span>
-            <button type="button" onMouseDown={preventMouseFocus} onClick={skipWaitingNotes} className="rounded-full bg-white/15 px-2 py-0.5 hover:bg-white/30">
+            <button type="button" onMouseDown={preventMouseFocus} onClick={skipWaitingNotes} className="rounded-full border border-current px-2 py-0.5 hover:opacity-80">
               {t.waitMode.skip}
             </button>
           </div>
@@ -659,7 +659,7 @@ const AppInner: React.FC = () => {
           aria-live="polite"
           className="absolute bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg bg-black/70 px-3 py-2 text-xs text-white shadow-lg backdrop-blur-md pointer-events-none"
         >
-          <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />
+          <Loader2 className="w-4 h-4 text-[color:var(--kp-played)] animate-spin" />
           <span>{t.loading}</span>
         </div>
       )}

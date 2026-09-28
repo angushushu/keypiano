@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
-import { THEMES, ThemeID } from '../theme';
+import React, { createContext, useContext, useEffect, useLayoutEffect, useState, useMemo } from 'react';
+import { DEFAULT_THEME_ID, THEMES, ThemeID, themeCssVariables } from '../theme';
 import { TRANSLATIONS, Language, TranslationSet } from '../i18n';
 import { Theme } from '../theme';
 
@@ -10,7 +10,6 @@ interface SettingsContextValue {
   setThemeId: (id: ThemeID) => void;
   theme: Theme;
   t: TranslationSet;
-  isLightTheme: boolean;
   isZenMode: boolean;
   setIsZenMode: (v: boolean) => void;
 }
@@ -25,10 +24,10 @@ const readStoredSettings = (): { language: Language; themeId: ThemeID } => {
       language: parsed.language === 'zh' ? 'zh' : 'en',
       themeId: typeof parsed.themeId === 'string' && parsed.themeId in THEMES
         ? parsed.themeId as ThemeID
-        : 'dark',
+        : DEFAULT_THEME_ID,
     };
   } catch {
-    return { language: 'en', themeId: 'dark' };
+    return { language: 'en', themeId: DEFAULT_THEME_ID };
   }
 };
 
@@ -47,6 +46,16 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [language, themeId]);
 
+  // Theme colours live in CSS variables on <html>, so everything (panels,
+  // modals, the page background, native controls) follows the theme. A layout
+  // effect applies them before the first paint.
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const theme = THEMES[themeId];
+    Object.entries(themeCssVariables(theme)).forEach(([name, value]) => root.style.setProperty(name, value));
+    root.style.colorScheme = theme.isLight ? 'light' : 'dark';
+  }, [themeId]);
+
   const value = useMemo(() => {
     const theme = THEMES[themeId];
     const t = TRANSLATIONS[language];
@@ -57,7 +66,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setThemeId,
       theme,
       t,
-      isLightTheme: theme.isLight,
       isZenMode,
       setIsZenMode,
     };

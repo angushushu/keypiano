@@ -74,7 +74,7 @@ const TakesPanel: React.FC<TakesPanelProps> = ({
         <History className="w-4 h-4" aria-hidden="true" />{t.takes.title}
       </h2>
       {isStorageAvailable === false && (
-        <p role="alert" className="text-[11px] px-1 text-amber-500">{t.takes.unavailable}</p>
+        <p role="alert" className="text-[11px] px-1 text-[color:var(--kp-rec)]">{t.takes.unavailable}</p>
       )}
       {takes.length === 0 && isStorageAvailable !== false && (
         <p className={`text-[11px] px-1 ${theme.toolbarText} opacity-70`}>{t.takes.empty}</p>
@@ -85,13 +85,13 @@ const TakesPanel: React.FC<TakesPanelProps> = ({
           const name = takeName(take);
           const Icon = take.kind === 'import' ? FileMusic : Mic;
           return (
-            <li key={take.id} className={`flex items-center gap-1 rounded border ${isCurrent ? 'border-yellow-500/70 bg-yellow-500/10' : theme.panelBorder}`}>
+            <li key={take.id} className={`flex items-center gap-1 rounded border ${isCurrent ? 'border-[color:var(--kp-played)] bg-[color:var(--kp-hover-bg)]' : theme.panelBorder}`}>
               <button
                 type="button"
                 disabled={isLocked}
                 aria-current={isCurrent ? 'true' : undefined}
                 onClick={() => onOpen(take.id)}
-                className={`flex-1 min-w-0 flex items-start gap-2 p-2 text-left rounded hover:bg-black/20 disabled:cursor-not-allowed disabled:opacity-50 ${theme.toolbarText}`}
+                className={`flex-1 min-w-0 flex items-start gap-2 p-2 text-left rounded hover:bg-[color:var(--kp-hover-bg)] disabled:cursor-not-allowed disabled:opacity-50 ${theme.toolbarText}`}
               >
                 <Icon className="w-3.5 h-3.5 mt-0.5 shrink-0 opacity-70" aria-hidden="true" />
                 <span className="min-w-0 flex flex-col">
@@ -105,7 +105,7 @@ const TakesPanel: React.FC<TakesPanelProps> = ({
               <button
                 type="button"
                 onClick={() => { if (window.confirm(t.takes.confirmDelete)) onDelete(take.id); }}
-                className="p-2 rounded text-gray-500 hover:text-red-400 hover:bg-black/20"
+                className="p-2 rounded text-[color:var(--kp-text-muted)] hover:text-[color:var(--kp-rec)] hover:bg-[color:var(--kp-hover-bg)]"
                 title={t.takes.delete}
                 aria-label={`${t.takes.delete}: ${name}`}
               >

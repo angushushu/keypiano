@@ -63,7 +63,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   };
 
   const baseClasses = `
-    relative rounded-[4px] flex flex-col items-center justify-center 
+    relative ${theme.keyRadius} flex flex-col items-center justify-center 
     select-none transition-all duration-75 box-border cursor-pointer
     w-full h-full 
   `;
@@ -72,10 +72,12 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   const isFunctionKey = (customLabel || code.startsWith('F') || code === 'Escape') && !mappedNote; 
   const isCoffee = code === 'Coffee';
   const isLargeLabel = customLabel === '#L' || customLabel === 'bL';
-  const isGuideNow = !isDummy && guideLevel >= 1;
+  const isGuideNowKey = !isDummy && guideLevel >= 1;
+  const isGuideNow = isGuideNowKey;
   
   // Color logic
-  const mainTextColor = isActive ? theme.keyMainLabelActive : theme.keyMainLabel;
+  // Text takes the ink of whatever colour fills the key.
+  const mainTextColor = isActive ? theme.keyMainLabelActive : isGuideNowKey ? theme.keyMainLabelGuide : theme.keyMainLabel;
   
   const functionTextClass = isLargeLabel 
     ? `text-[12px] sm:text-[18px] font-bold font-mono ${mainTextColor}` 
@@ -89,14 +91,11 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
       stateClass = theme.keyDummy;
   } else if (isCoffee) {
       stateClass = `bg-transparent border-none shadow-none transition-all ${isActive ? 'opacity-100 scale-95' : `opacity-60 hover:opacity-100`}`;
-  } else if (isGuideNow && isActive) {
-      // Hybrid state: Playback color (guide) but Active geometry (pressed)
-      // We manually ensure it looks pressed while keeping the guide color
-      stateClass = `${theme.keyPlayback} !translate-y-[2px] !shadow-none`;
+  } else if (isActive) {
+      // Pressing a key the guide asked for shows your press: that is the feedback.
+      stateClass = theme.keyActive;
   } else if (isGuideNow) {
       stateClass = theme.keyPlayback;
-  } else if (isActive) {
-      stateClass = theme.keyActive;
   } else {
       stateClass = theme.keyBase;
   }
@@ -144,7 +143,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   };
 
   const jianpuTextColor = mainTextColor;
-  const labelTextColor = theme.keyText;
+  const labelTextColor = isActive || isGuideNowKey ? `${mainTextColor} opacity-70` : theme.keyText;
 
   return (
     <div 
@@ -186,7 +185,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
     >
       <span
         aria-hidden="true"
-        className={`absolute inset-0 rounded-[4px] pointer-events-none transition-opacity duration-150 ${theme.keyGuide}`}
+        className={`absolute inset-0 rounded-[inherit] pointer-events-none transition-opacity duration-150 ${theme.keyGuide}`}
         style={{ opacity: guideOpacity }}
       />
       {!isFunctionKey && !isCoffee && !isDummy && (

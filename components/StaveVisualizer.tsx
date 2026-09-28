@@ -179,10 +179,9 @@ const StaveVisualizer: React.FC<StaveVisualizerProps> = ({ triggerNotes, theme }
         ctx.scale(dpr, dpr);
         ctx.clearRect(0, 0, width, height);
 
-        const isLight = theme.isLight;
-        const inkColor = isLight ? '#111' : '#e4e4e7';
-        // Ghost color for practice mode
-        const ghostColor = isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.3)';
+        const inkColor = theme.palette.staveInk;
+        // Practice notes use the guide colour, as on the keys
+        const ghostColor = theme.palette.guide;
         
         // --- COORDINATE MAPPING (Alignment with SVG) ---
         // StaveBackgroundSVG uses "xMidYMid meet"
@@ -300,11 +299,8 @@ const StaveVisualizer: React.FC<StaveVisualizerProps> = ({ triggerNotes, theme }
         });
     };
     
-    const isLight = theme.isLight;
-    const bgClass = isLight ? 'bg-[#fffaf0]' : 'bg-[#222]'; 
-
     return (
-        <div ref={containerRef} className={`w-full h-full overflow-hidden border-b ${theme.toolbarBorder} relative ${bgClass}`}>
+        <div ref={containerRef} className={`w-full h-full overflow-hidden border-b ${theme.toolbarBorder} relative bg-[color:var(--kp-stave-bg)]`}>
             <StaveBackgroundSVG theme={theme} />
             <canvas ref={canvasRef} className="block w-full h-full absolute top-0 left-0" />
         </div>

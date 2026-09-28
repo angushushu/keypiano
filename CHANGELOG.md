@@ -10,6 +10,10 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ### Added
 
+- Three themes: **Night** (graphite with amber and teal, now the default for
+  new visitors), **Day** (cool white with blue and orange) and **Studio**
+  (ebony and ivory with brass and felt red).
+- Unit tests for every theme's text contrast and key-state visibility.
 - **Settings → My keyboard has a numpad** (off by default): lets practice
   hints for imported MIDI use the numpad and arrow keys.
 - In practice mode, when notes of a piece fall outside the keys' range, a
@@ -17,6 +21,12 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ### Changed
 
+- Themes are palettes applied as CSS variables, and every component reads
+  them. The six original themes are remade on the same rules: flat keys,
+  single-colour toolbar icons that only take the accent when switched on,
+  and one colour for "pressed" and one for "practice guide" on the computer
+  keyboard, piano, waterfall and stave. The stave, waterfall, settings and
+  history panels, native selects and scrollbars now follow the theme too.
 - Practice hints for imported MIDI follow keyboard-piano technique. The old
   fingering put almost every note on the numpad and the bass on the arrow
   keys, so on a laptop nothing useful lit up. Now the left hand uses the two
@@ -26,6 +36,14 @@ Entries before 1.1.0 are summarised from the commit history.
   and each hand stays near its last key instead of jumping rows. Keys are
   chosen once per piece, so a hinted note no longer switches key as it
   approaches, and they follow the current octave and transpose setting.
+
+### Fixed
+
+- The instrument select was white text on white in the Minimalist and
+  Pastel themes; the Pastel piano's black keys matched its playback colour;
+  the support link was unreadable in Fauvism; Cyber's white and black piano
+  keys were hard to tell apart; pressed keys barely changed in Light and on
+  the Dark computer keyboard.
 
 ## [1.3.1] - 2026-09-27
 
