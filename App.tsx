@@ -350,9 +350,12 @@ const AppInner: React.FC = () => {
   // Window event listeners (registered once)
   useEffect(() => {
     const onKeyD = (e: KeyboardEvent) => {
-      if (e.repeat || isInteractiveTarget(e.target)) return;
+      if (isInteractiveTarget(e.target)) return;
+      // Block defaults on auto-repeat too: a held Tab would otherwise walk focus
+      // onto a toolbar button, after which every key is ignored as interactive.
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'ControlLeft' || e.code === 'ControlRight') e.preventDefault();
       else if (currentKeyMapRef.current[e.code] || e.code.startsWith('F') || ['Tab', 'Quote', 'Slash', 'Space'].includes(e.code)) e.preventDefault();
+      if (e.repeat) return;
       handleKeyDownRef.current(e as globalThis.KeyboardEvent);
       playNoteByCodeRef.current(e.code);
     };

@@ -8,6 +8,12 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+### Fixed
+
+- Holding Tab (mapped to a note) no longer moves focus onto the toolbar and
+  stops the keyboard from playing: auto-repeat keydowns now have their
+  default action blocked too.
+
 ## [1.2.0] - 2026-09-16
 
 ### Added
