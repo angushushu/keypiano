@@ -8,6 +8,8 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-28
+
 ### Changed
 
 - Louder, even playback. The sample sets were recorded at very different
