@@ -8,6 +8,8 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-27
+
 ### Changed
 
 - Practice mode's key guide is one colour that fills in as a note
