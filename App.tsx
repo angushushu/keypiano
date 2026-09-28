@@ -53,6 +53,14 @@ const isInteractiveTarget = (target: EventTarget | null): boolean => {
   );
 };
 
+// Inputs that take typed text; every other control is a click target.
+const NON_TEXT_INPUT_TYPES = new Set(['button', 'checkbox', 'color', 'file', 'image', 'radio', 'range', 'reset', 'submit']);
+const isTextEntryTarget = (target: HTMLElement): boolean => (
+  target.isContentEditable
+  || target instanceof HTMLTextAreaElement
+  || (target instanceof HTMLInputElement && !NON_TEXT_INPUT_TYPES.has(target.type))
+);
+
 const AppInner: React.FC = () => {
   const { theme, t, isZenMode, setIsZenMode } = useSettings();
   const {
@@ -393,10 +401,32 @@ const AppInner: React.FC = () => {
     };
   }, [ensureAudioStarted]);
 
+  // Browsers leave focus on whatever was clicked (a toolbar button, a select,
+  // the volume slider), and keys aimed at a focused control are not played.
+  // Remember the last click so a key press can hand focus back to the page.
+  const lastPointerTargetRef = useRef<Element | null>(null);
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      lastPointerTargetRef.current = e.target instanceof Element ? e.target : null;
+    };
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => window.removeEventListener('pointerdown', onPointerDown, true);
+  }, []);
+
   // Window event listeners (registered once)
   useEffect(() => {
+    // True for a non-text control the pointer focused. A control reached with
+    // the keyboard keeps its own keys (Enter, Space, arrows).
+    const isClickFocusedControl = (target: EventTarget | null): target is HTMLElement => {
+      const clicked = lastPointerTargetRef.current;
+      return target instanceof HTMLElement && !isTextEntryTarget(target) && clicked !== null && target.contains(clicked);
+    };
     const onKeyD = (e: KeyboardEvent) => {
-      if (isInteractiveTarget(e.target)) return;
+      if (isInteractiveTarget(e.target)) {
+        // Escape belongs to the open panel (it closes it), not to sustain.
+        if (e.key === 'Escape' || !isClickFocusedControl(e.target)) return;
+        e.target.blur();
+      }
       // Block defaults on auto-repeat too: a held Tab would otherwise walk focus
       // onto a toolbar button, after which every key is ignored as interactive.
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'ControlLeft' || e.code === 'ControlRight') e.preventDefault();

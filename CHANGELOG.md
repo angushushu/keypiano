@@ -8,6 +8,14 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+### Fixed
+
+- After clicking any toolbar control (Import MIDI, view buttons, the speed
+  or instrument select, the volume slider, Recent recordings), the computer
+  keyboard played nothing until the page was clicked. A control focused by a
+  click now hands focus back to the page on the next note key; text fields
+  and controls reached with the keyboard keep their own keys.
+
 ## [1.3.0] - 2026-09-27
 
 ### Added
