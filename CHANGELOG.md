@@ -8,6 +8,8 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-27
+
 ### Added
 
 - Three themes: **Night** (graphite with amber and teal, now the default for
