@@ -6,8 +6,9 @@ import {
     WaitGate, findNextGate, isGateSatisfied, isWithinGateWindow, remainingNotes, withHit,
 } from '../services/waitGate';
 import {
-    GUIDE_LOOKAHEAD_MS, GUIDE_NOW, GuideEntry, nowEntries, raiseLevel, sameLevels, upcomingEntries,
+    GUIDE_LOOKAHEAD_MS, GuideEntry, nowEntries, raiseLevel, sameLevels, upcomingEntries,
 } from '../services/practiceGuide';
+import type { KeyAssignment } from '../services/autoFingering';
 import type { TickWorkerMessage } from '../workers/tickWorker';
 
 interface UseAudioSchedulerProps {
@@ -16,9 +17,8 @@ interface UseAudioSchedulerProps {
     /** In practice mode, halt at each note until the player presses it. */
     isWaitMode: boolean;
     playbackSpeed: number;
-    leftHandMap: Map<string, string>;
-    rightHandMap: Map<string, string>;
-    noteToKeyMap: Map<string, string>;
+    /** Keys chosen for events without a recorded key (imported MIDI), computed once per piece. */
+    keyAssignments: Map<RecordedEvent, KeyAssignment>;
     setPlaybackKeys: (keys: Set<string>) => void;
     setPlaybackNotes: (notes: Set<string>) => void;
     setTriggerNotes: (updater: (prev: TriggerNote[]) => TriggerNote[]) => void;
@@ -56,60 +56,25 @@ export function computeActiveEvents(events: RecordedEvent[], upToMs: number): Ma
     return active;
 }
 
-export interface KeyAssignment {
-    evt: RecordedEvent;
-    /** Sounding note, transposition applied. */
-    note: string;
-    code?: string;
-    /** The key is played with Shift held (a black key reached from its white neighbour). */
-    withShift: boolean;
-}
-
-export function assignKeys(
-    events: RecordedEvent[],
-    leftHandMap: Map<string, string>,
-    rightHandMap: Map<string, string>,
-    noteToKeyMap: Map<string, string>,
-): KeyAssignment[] {
-    const sorted = [...events].sort((a, b) => a.note.localeCompare(b.note));
-    const hasBlackKeys = sorted.some(evt => evt.note.includes('#') || evt.note.includes('b'));
-    let rightHandCount = 0;
-
-    return sorted.map(evt => {
-        const note = getTransposedNote(evt.note, evt.transpose);
-        if (evt.code) return { evt, note, code: evt.code, withShift: false };
-
-        if (evt.note.includes('#') || evt.note.includes('b')) {
-            const baseCode = leftHandMap.get(getTransposedNote(evt.note, -1));
-            return baseCode
-                ? { evt, note, code: baseCode, withShift: true }
-                : { evt, note, code: noteToKeyMap.get(evt.note), withShift: false };
-        }
-
-        const rightCode = rightHandMap.get(evt.note);
-        if (rightCode && rightHandCount < 5) {
-            rightHandCount++;
-            return { evt, note, code: rightCode, withShift: false };
-        }
-        const code = hasBlackKeys
-            ? leftHandMap.get(evt.note)
-            : leftHandMap.get(evt.note) || noteToKeyMap.get(evt.note);
-        return { evt, note, code, withShift: false };
-    });
+/** Keys that play `evt`: the key it was recorded with, or the auto-fingered key plus its modifier. */
+export function keysForEvent(evt: RecordedEvent, assignments: Map<RecordedEvent, KeyAssignment>): string[] {
+    if (evt.code) return [evt.code];
+    const assignment = assignments.get(evt);
+    if (!assignment) return [];
+    if (assignment.modifier === 1) return [assignment.code, 'ShiftLeft'];
+    if (assignment.modifier === -1) return [assignment.code, 'ControlLeft'];
+    return [assignment.code];
 }
 
 export function assignFingering(
     events: Map<string, RecordedEvent>,
-    leftHandMap: Map<string, string>,
-    rightHandMap: Map<string, string>,
-    noteToKeyMap: Map<string, string>,
+    assignments: Map<RecordedEvent, KeyAssignment>,
 ): { activeKeys: Set<string>; activeNotes: Set<string> } {
     const activeKeys = new Set<string>();
     const activeNotes = new Set<string>();
-    for (const assignment of assignKeys([...events.values()], leftHandMap, rightHandMap, noteToKeyMap)) {
-        activeNotes.add(assignment.note);
-        if (assignment.withShift) activeKeys.add('ShiftLeft');
-        if (assignment.code) activeKeys.add(assignment.code);
+    for (const evt of events.values()) {
+        activeNotes.add(getTransposedNote(evt.note, evt.transpose));
+        keysForEvent(evt, assignments).forEach(code => activeKeys.add(code));
     }
     return { activeKeys, activeNotes };
 }
@@ -146,9 +111,7 @@ export function useAudioScheduler({
     isPracticeMode,
     isWaitMode,
     playbackSpeed,
-    leftHandMap,
-    rightHandMap,
-    noteToKeyMap,
+    keyAssignments,
     setPlaybackKeys,
     setPlaybackNotes,
     setTriggerNotes,
@@ -183,7 +146,9 @@ export function useAudioScheduler({
     const lastStaveIndexRef = useRef<number>(0);
     const workerRef = useRef<Worker | null>(null);
 
+    const keyAssignmentsRef = useRef(keyAssignments);
     useEffect(() => { playbackSpeedRef.current = playbackSpeed; }, [playbackSpeed]);
+    useEffect(() => { keyAssignmentsRef.current = keyAssignments; }, [keyAssignments]);
     const readTrackTimeMs = () => (
         (audioEngine.currentTime - audioContextStartTimeRef.current) * playbackSpeedRef.current * 1000
     ) + playbackStartOffsetRef.current;
@@ -273,20 +238,14 @@ export function useAudioScheduler({
         }
     };
 
-    // Notes due now and approaching notes are fingered separately, as before,
-    // so a crowded lookahead cannot push a current note onto the other hand.
+    // Keys come from the per-piece assignment, so a note keeps the same key
+    // from the moment it starts fading in until it is played.
     const buildGuide = (entries: GuideEntry[]) => {
         const keys = new Map<string, number>();
         const notes = new Map<string, number>();
-        const groups = [entries.filter(entry => entry.level === GUIDE_NOW), entries.filter(entry => entry.level < GUIDE_NOW)];
-        for (const group of groups) {
-            const levelOf = new Map(group.map(entry => [entry.evt, entry.level]));
-            for (const assignment of assignKeys(group.map(entry => entry.evt), leftHandMap, rightHandMap, noteToKeyMap)) {
-                const level = levelOf.get(assignment.evt) ?? 0;
-                raiseLevel(notes, assignment.note, level);
-                if (assignment.code) raiseLevel(keys, assignment.code, level);
-                if (assignment.withShift) raiseLevel(keys, 'ShiftLeft', level);
-            }
+        for (const { evt, level } of entries) {
+            raiseLevel(notes, getTransposedNote(evt.note, evt.transpose), level);
+            keysForEvent(evt, keyAssignmentsRef.current).forEach(code => raiseLevel(keys, code, level));
         }
         return { keys, notes };
     };
@@ -437,9 +396,7 @@ export function useAudioScheduler({
         const activeNotesMap = computeActiveEvents(events, currentTrackTimeMs);
         
         // 2. Assign fingering
-        const { activeKeys, activeNotes } = assignFingering(
-            activeNotesMap, leftHandMap, rightHandMap, noteToKeyMap,
-        );
+        const { activeKeys, activeNotes } = assignFingering(activeNotesMap, keyAssignmentsRef.current);
 
         // 3. Detect temp transpose
         const modT = detectTempTranspose(activeKeys);

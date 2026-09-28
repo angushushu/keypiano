@@ -84,6 +84,15 @@ interface TranslationSet {
     /** Asked before replacing a take that the browser could not save. */
     confirmDiscard: string;
   };
+  numpadHints: {
+    label: string;
+    hint: string;
+  };
+  practiceRange: {
+    /** `{count}` notes out of range now, `{octave}` suggested, `{after}` left out after switching. */
+    message: string;
+    apply: string;
+  };
   waitMode: {
     toggle: string;
     /** Shown while playback waits, with `{count}` replaced by the notes left. */
@@ -243,6 +252,14 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
       unavailable: 'This browser is not saving recordings (for example in private mode), so they are lost when the page closes.',
       confirmDiscard: 'The current recording could not be saved in this browser. Replace it anyway?',
     },
+    numpadHints: {
+      label: 'My keyboard has a numpad',
+      hint: 'Practice hints for imported MIDI may then also use the numpad and arrow keys.',
+    },
+    practiceRange: {
+      message: '{count} notes are outside the keyboard range. Octave {octave} leaves {after}.',
+      apply: 'Switch octave',
+    },
     waitMode: {
       toggle: 'Wait for me: playback pauses until you play each note',
       waiting: 'Play the highlighted notes · {count} left',
@@ -395,6 +412,14 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
       confirmDelete: '删除这段录音？删除后无法恢复。',
       unavailable: '当前浏览器没有保存录音（例如无痕模式），关闭页面后录音会丢失。',
       confirmDiscard: '当前录音没能保存到浏览器中。仍然要替换它吗？',
+    },
+    numpadHints: {
+      label: '我的键盘有小键盘',
+      hint: '开启后，导入 MIDI 的练习提示也会用到小键盘和方向键。',
+    },
+    practiceRange: {
+      message: '有 {count} 个音超出键位范围，换到八度 {octave} 后剩 {after} 个。',
+      apply: '切换八度',
     },
     waitMode: {
       toggle: '等待模式：弹对每个音后才继续播放',

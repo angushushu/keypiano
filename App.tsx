@@ -27,11 +27,25 @@ import { useKeyboardInput } from './hooks/useKeyboardInput';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { useRecordingState } from './hooks/useRecordingState';
 import { useTakeHistory } from './hooks/useTakeHistory';
+import { assignPiece, suggestOctave } from './services/autoFingering';
 
 // ─── Inner App (consumes contexts) ──────────────────────────────
 
 const MAX_TRIGGER_NOTES = 500;
 const WAIT_MODE_STORAGE_KEY = 'keypiano.waitMode.v1';
+const NUMPAD_HINTS_STORAGE_KEY = 'keypiano.numpadHints.v1';
+
+// Laptops have no numpad, so practice hints stay on the main block unless
+// the player says otherwise.
+const readNumpadHintsPreference = () => {
+  try {
+    return localStorage.getItem(NUMPAD_HINTS_STORAGE_KEY) === 'on';
+  } catch {
+    return false;
+  }
+};
+
+const formatOctave = (octave: number) => (octave > 0 ? `+${octave}` : String(octave));
 
 // Wait mode is on unless the player turned it off: it is what makes practice
 // mode usable for someone still learning a piece.
@@ -80,6 +94,7 @@ const AppInner: React.FC = () => {
   const [isPortraitMobile, setIsPortraitMobile] = useState(false);
   const [isPracticeMode, setIsPracticeMode] = useState(false);
   const [isWaitMode, setIsWaitMode] = useState(readWaitModePreference);
+  const [useNumpadHints, setUseNumpadHints] = useState(readNumpadHintsPreference);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
 
   // UI panels
@@ -170,17 +185,17 @@ const AppInner: React.FC = () => {
     requestAnimationFrame(() => virtualKeyRefs.current.get(nextCode)?.focus());
   }, [focusableVirtualCodes]);
 
-  // Fingering maps
-  const { leftHandMap, rightHandMap, noteToKeyMap } = useMemo(() => {
-    const l = new Map<string, string>(), r = new Map<string, string>(), full = new Map<string, string>();
-    Object.entries(currentKeyMap).forEach(([code, note]: [string, string]) => {
-      const isNumpad = code.startsWith('Numpad');
-      if (isNumpad || code.startsWith('Arrow') || ['Insert', 'Home', 'PageUp', 'Delete', 'End', 'PageDown'].includes(code)) { if (!r.has(note) || isNumpad) r.set(note, code); }
-      else { if (!l.has(note)) l.set(note, code); }
-      if (!full.has(note) || (isNumpad && !full.get(note)!.startsWith('Numpad'))) full.set(note, code);
-    });
-    return { leftHandMap: l, rightHandMap: r, noteToKeyMap: full };
-  }, [currentKeyMap]);
+  // Keys for imported notes, chosen once per piece, keymap and transposition
+  // so a hinted note never jumps to another key while it approaches.
+  const fingeringOptions = useMemo(() => ({ useNumpad: useNumpadHints }), [useNumpadHints]);
+  const keyAssignments = useMemo(
+    () => assignPiece(recordedEvents, currentKeyMap, transposeBase + octaveShift * 12, fingeringOptions),
+    [recordedEvents, currentKeyMap, transposeBase, octaveShift, fingeringOptions],
+  );
+  const octaveAdvice = useMemo(
+    () => (isPracticeMode ? suggestOctave(recordedEvents, currentKeyMap, transposeBase, octaveShift, fingeringOptions) : null),
+    [isPracticeMode, recordedEvents, currentKeyMap, transposeBase, octaveShift, fingeringOptions],
+  );
 
   // Playback clear helper
   const clearPlaybackVisuals = useCallback(() => { setPlaybackKeys(new Set()); setPlaybackNotes(new Set()); setGuideKeys(EMPTY_GUIDE); setGuideNotes(EMPTY_GUIDE); }, []);
@@ -193,13 +208,21 @@ const AppInner: React.FC = () => {
     }
   }, [isWaitMode]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(NUMPAD_HINTS_STORAGE_KEY, useNumpadHints ? 'on' : 'off');
+    } catch {
+      // The preference still applies for this session.
+    }
+  }, [useNumpadHints]);
+
   // Audio scheduler
   const {
     isPlayingBack, togglePlayback, pausePlayback, changePlaybackSpeedAnchor,
     waitingRemaining, registerUserNote, skipWaitingNotes,
   } = useAudioScheduler({
     recordingRef, isPracticeMode, isWaitMode, playbackSpeed,
-    leftHandMap, rightHandMap, noteToKeyMap,
+    keyAssignments,
     setPlaybackKeys, setPlaybackNotes, setTriggerNotes, setPlaybackTempTranspose,
     setGuideKeys, setGuideNotes, setElapsedTime: (t: number) => recordingDispatch({ type: 'SET_ELAPSED', elapsed: t }), elapsedTime,
   });
@@ -540,6 +563,8 @@ const AppInner: React.FC = () => {
         midiInputCount={midiInputCount}
         requestMidiAccess={requestMidiAccess}
         isSampleSourceLocked={isRecording || isPlayingBack}
+        useNumpadHints={useNumpadHints}
+        setUseNumpadHints={setUseNumpadHints}
       />
 
       <TakesPanel
@@ -556,6 +581,19 @@ const AppInner: React.FC = () => {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col relative overflow-hidden">
+        {octaveAdvice && !isPlayingBack && !isRecording && (
+          <div role="status" aria-live="polite" className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 rounded-full bg-amber-700/90 px-4 py-1.5 text-xs text-white shadow-lg backdrop-blur-md">
+            <span>
+              {t.practiceRange.message
+                .replace('{count}', String(octaveAdvice.unreachableNow))
+                .replace('{octave}', formatOctave(octaveAdvice.octave))
+                .replace('{after}', String(octaveAdvice.unreachableThen))}
+            </span>
+            <button type="button" onMouseDown={preventMouseFocus} onClick={() => setOctaveShift(octaveAdvice.octave)} className="rounded-full bg-white/15 px-2 py-0.5 hover:bg-white/30">
+              {t.practiceRange.apply}
+            </button>
+          </div>
+        )}
         {waitingRemaining !== null && (
           <div role="status" aria-live="polite" className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 rounded-full bg-purple-700/90 px-4 py-1.5 text-xs text-white shadow-lg backdrop-blur-md">
             <span>{t.waitMode.waiting.replace('{count}', String(waitingRemaining))}</span>

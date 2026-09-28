@@ -3,7 +3,9 @@ import { Midi } from '@tonejs/midi';
 import { generateMidiFile, parseMidiFile } from '../services/midiIO';
 import { ALL_ROWS, getJianpu, getTransposedNote, midiNumberToNote, noteToMidi } from '../constants';
 import { RecordedEvent } from '../types';
-import { assignFingering, assignKeys, computeActiveEvents } from '../hooks/useAudioScheduler';
+import { assignFingering, computeActiveEvents, keysForEvent } from '../hooks/useAudioScheduler';
+import { assignPiece, suggestOctave } from '../services/autoFingering';
+import { KEYMAP_PRESETS } from '../constants';
 import { initialRecordingState, recordingReducer } from '../hooks/useRecordingState';
 import { TRANSLATIONS, Language } from '../i18n';
 import { SAMPLE_SOURCES, SampleLibrary, getSampleBaseUrl, isSampleSourceID } from '../services/sampleSources';
@@ -364,18 +366,80 @@ test('sameLevels compares guide maps by content', () => {
   assert.equal(sameLevels(new Map(), new Map([['KeyQ', 1]])), false);
 });
 
-test('assignKeys fingers each note like assignFingering', () => {
-  const leftHand = new Map([['C4', 'KeyQ'], ['D4', 'KeyW']]);
-  const rightHand = new Map([['C4', 'Numpad1']]);
-  const all = new Map([['C4', 'Numpad1'], ['D4', 'KeyW']]);
-  const events = [on(0, 'C4'), on(0, 'C#4'), on(0, 'D4', { code: 'KeyW' })];
-  const byNote = new Map(assignKeys(events, leftHand, rightHand, all).map(a => [a.note, [a.code, a.withShift]]));
-  assert.deepEqual(byNote.get('C#4'), ['KeyQ', true], 'a black key is its white neighbour plus Shift');
-  assert.deepEqual(byNote.get('C4'), ['Numpad1', false], 'right hand first');
-  assert.deepEqual(byNote.get('D4'), ['KeyW', false], 'a recorded key code is kept');
-  const { activeKeys, activeNotes } = assignFingering(new Map(events.map((evt, i) => [String(i), evt])), leftHand, rightHand, all);
-  assert.deepEqual([...activeNotes].sort(), ['C#4', 'C4', 'D4']);
-  assert.ok(activeKeys.has('ShiftLeft') && activeKeys.has('KeyQ') && activeKeys.has('KeyW'));
+const FREEPIANO = KEYMAP_PRESETS.freepiano.map;
+const LAPTOP = { useNumpad: false };
+const fingerNotes = (events: RecordedEvent[], options = LAPTOP, offset = 0) => {
+  const assignments = assignPiece(events, FREEPIANO, offset, options);
+  return events.map(evt => {
+    const a = assignments.get(evt);
+    if (!a) return null;
+    return `${a.modifier === 1 ? 'Shift+' : a.modifier === -1 ? 'Ctrl+' : ''}${a.code}`;
+  });
+};
+
+test('a melody stays on the Q row, continuing up it instead of jumping rows', () => {
+  const scale = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5', 'D5', 'E5'].map((note, i) => on(i * 500, note));
+  assert.deepEqual(fingerNotes(scale), ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT', 'KeyY', 'KeyU', 'KeyI', 'KeyO', 'KeyP']);
+});
+
+test('bass goes to the left-hand rows and melody to the right-hand rows', () => {
+  const events = [on(0, 'C3'), on(0, 'E5'), on(500, 'G2'), on(500, 'D5')];
+  assert.deepEqual(fingerNotes(events), ['KeyA', 'KeyP', 'KeyB', 'KeyO']);
+});
+
+test('without a numpad no hint uses the numpad or arrow keys', () => {
+  const events = ['G3', 'C4', 'E4', 'G4', 'C5', 'C3', 'E3', 'C6'].map((note, i) => on(i * 300, note));
+  for (const code of fingerNotes(events)) {
+    assert.ok(code && !/Numpad|Arrow|Insert|Home|PageUp|Delete|End|PageDown/.test(code), `${code} is not on the main block`);
+  }
+});
+
+test('sharps are Shift on the key below', () => {
+  assert.deepEqual(fingerNotes([on(0, 'F#4')]), ['Shift+KeyR']);
+});
+
+test('a chord mixing black and white keys still hints every note', () => {
+  // D-F#-A cannot share one modifier on a main block without black keys,
+  // so the F# keeps its own Shift and the chord is rolled.
+  assert.deepEqual(fingerNotes([on(0, 'D4'), on(0, 'F#4'), on(0, 'A4')]), ['KeyW', 'Shift+KeyR', 'KeyY']);
+  const withNumpad = fingerNotes([on(0, 'D4'), on(0, 'F#4'), on(0, 'A4')], { useNumpad: true });
+  assert.equal(withNumpad[1], 'Shift+KeyR');
+  assert.ok(withNumpad[0]?.startsWith('Numpad') && withNumpad[2]?.startsWith('Numpad'),
+    'with a numpad the white notes move to keys Shift does not affect');
+});
+
+test('two MIDI tracks are split into hands by average pitch', () => {
+  const events = [
+    on(0, 'E4', { trackName: 'RH' }), on(0, 'C4', { trackName: 'LH' }),
+    on(500, 'G4', { trackName: 'RH' }), on(500, 'G3', { trackName: 'LH' }),
+  ];
+  const assignments = assignPiece(events, FREEPIANO, 0, LAPTOP);
+  assert.deepEqual(events.map(evt => assignments.get(evt)?.hand), ['right', 'left', 'right', 'left']);
+  assert.equal(assignments.get(events[1])?.code, 'KeyK', "the left hand plays C4 from its own row");
+});
+
+test('recorded key presses are never re-fingered', () => {
+  const recorded = on(0, 'C4', { code: 'Numpad1' });
+  assert.equal(assignPiece([recorded], FREEPIANO, 0, LAPTOP).size, 0);
+  assert.deepEqual(keysForEvent(recorded, new Map()), ['Numpad1']);
+});
+
+test('transposition changes which key plays a note', () => {
+  assert.deepEqual(fingerNotes([on(0, 'C5')], LAPTOP, 12), ['KeyQ'], 'one octave up, Q sounds C5');
+});
+
+test('suggestOctave finds the octave that fits a piece out of range', () => {
+  const high = ['C6', 'E6', 'G6', 'C7', 'E7'].map((note, i) => on(i * 300, note));
+  assert.deepEqual(suggestOctave(high, FREEPIANO, 0, 0, LAPTOP), { octave: 1, unreachableNow: 2, unreachableThen: 0 });
+  assert.equal(suggestOctave(high, FREEPIANO, 0, 1, LAPTOP), null, 'already the best octave');
+});
+
+test('assignFingering lights the assigned key and its modifier', () => {
+  const sharp = on(0, 'F#4');
+  const assignments = assignPiece([sharp], FREEPIANO, 0, LAPTOP);
+  const { activeKeys, activeNotes } = assignFingering(new Map([['a', sharp]]), assignments);
+  assert.deepEqual([...activeNotes], ['F#4']);
+  assert.deepEqual([...activeKeys].sort(), ['KeyR', 'ShiftLeft']);
 });
 
 for (const { name, run } of tests) {

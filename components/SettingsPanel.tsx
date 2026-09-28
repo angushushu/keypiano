@@ -19,6 +19,9 @@ interface SettingsPanelProps {
   requestMidiAccess: () => Promise<void>;
   /** Recording or playback is running, so the sound set must not be reloaded. */
   isSampleSourceLocked: boolean;
+  /** Practice hints may use the numpad and arrow keys. */
+  useNumpadHints: boolean;
+  setUseNumpadHints: (value: boolean) => void;
 }
 
 const SettingsPanel: React.FC<SettingsPanelProps> = ({
@@ -32,6 +35,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   midiInputCount,
   requestMidiAccess,
   isSampleSourceLocked,
+  useNumpadHints,
+  setUseNumpadHints,
 }) => {
   const { language, setLanguage, themeId, setThemeId, theme, t } = useSettings();
   const { sampleSource, handleSampleSourceChange, isLoading } = useSynth();
@@ -72,6 +77,13 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         }} className={`bg-black/20 text-current text-xs p-1.5 rounded border outline-none focus:border-yellow-500 cursor-pointer ${theme.panelBorder} ${theme.toolbarText}`}>
           {Object.entries(KEYMAP_PRESETS).map(([id, cfg]) => (<option key={id} value={id}>{cfg.name}</option>))}
         </select>
+        <label className={`flex items-start gap-2 text-xs px-1 mt-1 cursor-pointer ${theme.toolbarText}`}>
+          <input type="checkbox" checked={useNumpadHints} onChange={(e) => setUseNumpadHints(e.target.checked)} className="mt-0.5 accent-yellow-500" />
+          <span className="flex flex-col">
+            <span>{t.numpadHints.label}</span>
+            <span className="text-[11px] opacity-70">{t.numpadHints.hint}</span>
+          </span>
+        </label>
       </div>
       <div className={`h-px border-b ${theme.panelBorder}`}></div>
       <div className="flex flex-col gap-1">

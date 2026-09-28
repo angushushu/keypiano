@@ -8,6 +8,25 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+### Added
+
+- **Settings → My keyboard has a numpad** (off by default): lets practice
+  hints for imported MIDI use the numpad and arrow keys.
+- In practice mode, when notes of a piece fall outside the keys' range, a
+  prompt suggests the octave that fits more of them and switches to it.
+
+### Changed
+
+- Practice hints for imported MIDI follow keyboard-piano technique. The old
+  fingering put almost every note on the numpad and the bass on the arrow
+  keys, so on a laptop nothing useful lit up. Now the left hand uses the two
+  lower letter rows and the right hand the Q and number rows (split by MIDI
+  track when a file has one per hand), black keys are Shift on the key
+  below (or Ctrl above for flats), a chord shares one modifier where it can,
+  and each hand stays near its last key instead of jumping rows. Keys are
+  chosen once per piece, so a hinted note no longer switches key as it
+  approaches, and they follow the current octave and transpose setting.
+
 ## [1.3.1] - 2026-09-27
 
 ### Changed

@@ -70,6 +70,8 @@ Track name, channel and program number from an imported file are kept and writte
 
 Load a recording or MIDI file, turn on practice mode (graduation-cap button), then press Play. Playback is silent. Keys fill in with colour as their notes approach, like the notes falling in the waterfall view; a fully lit key means play it now. With **wait mode** (hourglass button, on by default) playback stops at each note or chord until you have pressed all of its notes (only the ones still to press stay fully lit), on any input: computer keyboard, on-screen keys or a MIDI keyboard. Notes are matched by pitch, so transposition does not matter. **Skip** moves past notes you cannot reach. Turn wait mode off to play along at a fixed tempo, optionally slowed down with the speed control.
 
+Pieces you recorded on the computer keyboard light the exact keys you pressed. For imported MIDI, KeyPiano picks keys the way a keyboard piano is played: the left hand on the two lower letter rows and the right hand on the Q and number rows (a file with separate tracks per hand keeps that split; otherwise the top note of each chord is the right hand and the rest split at middle C), black keys as Shift on the key below (or Ctrl on the key above for flats), and each hand staying near where it already is. Hints use only the main keys unless **Settings → My keyboard has a numpad** is on. When notes fall outside the keys' range, practice mode suggests an octave that fits more of them.
+
 ## Browser support
 
 | Capability | Chromium browsers | Firefox | Safari |
