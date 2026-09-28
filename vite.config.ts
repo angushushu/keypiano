@@ -12,7 +12,8 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,svg,png}'],
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/(gleitz\.github\.io|tonejs\.github\.io|raw\.githubusercontent\.com)\/.*\.mp3$/i,
+            // Every host in services/sampleSources.ts, so a sample is cached whichever server it came from.
+            urlPattern: /^https:\/\/(gleitz\.github\.io|tonejs\.github\.io|raw\.githubusercontent\.com|fastly\.jsdelivr\.net|gcore\.jsdelivr\.net)\/.*\.mp3$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'audio-samples-cache',

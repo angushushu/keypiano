@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { audioEngine, SustainLevel, InstrumentID, INSTRUMENTS } from '../services/audioEngine';
+import { DEFAULT_SAMPLE_SOURCE, isSampleSourceID, SampleSourceID } from '../services/sampleSources';
+import { trackEvent } from '../services/analytics';
 import { useSettings } from './SettingsContext';
 
 interface SynthContextValue {
@@ -7,6 +9,9 @@ interface SynthContextValue {
   setIsLoading: (v: boolean) => void;
   currentInstrument: InstrumentID;
   handleInstrumentChange: (id: InstrumentID) => Promise<void>;
+  sampleSource: SampleSourceID;
+  /** Switches the sample download server and reloads the current instrument from it. */
+  handleSampleSourceChange: (source: SampleSourceID) => Promise<void>;
   /**
    * Resumes the audio context, which browsers keep suspended until a user
    * gesture. Must be called synchronously from that gesture. Idempotent:
@@ -40,6 +45,7 @@ const isInstrumentID = (value: unknown): value is InstrumentID => (
 const readSynthPreferences = () => {
   const fallback = {
     instrument: 'salamander' as InstrumentID,
+    sampleSource: DEFAULT_SAMPLE_SOURCE,
     masterVolume: 0.8,
     keyVelocity: 100,
     sustainLevel: 'SHORT' as SustainLevel,
@@ -48,6 +54,7 @@ const readSynthPreferences = () => {
     const parsed = JSON.parse(localStorage.getItem(SYNTH_STORAGE_KEY) ?? '{}') as Record<string, unknown>;
     return {
       instrument: isInstrumentID(parsed.instrument) ? parsed.instrument : fallback.instrument,
+      sampleSource: isSampleSourceID(parsed.sampleSource) ? parsed.sampleSource : fallback.sampleSource,
       masterVolume: typeof parsed.masterVolume === 'number'
         ? Math.max(0, Math.min(1, parsed.masterVolume))
         : fallback.masterVolume,
@@ -69,6 +76,7 @@ export const SynthProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const [isLoading, setIsLoading] = useState(false);
   const [currentInstrument, setCurrentInstrument] = useState<InstrumentID>(initialPreferences.instrument);
+  const [sampleSource, setSampleSource] = useState<SampleSourceID>(initialPreferences.sampleSource);
   const [toast, setToast] = useState<{ message: string; variant: 'warning' | 'error' | 'info' } | null>(null);
 
   const [transposeBase, setTransposeBase] = useState(0);
@@ -81,6 +89,8 @@ export const SynthProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const instrumentRequestRef = useRef(0);
   const loadPromiseRef = useRef<Promise<boolean> | null>(null);
   const currentInstrumentRef = useRef(currentInstrument);
+  // Updated synchronously on selection so a reload started in the same tick uses it.
+  const sampleSourceRef = useRef(sampleSource);
 
   useEffect(() => {
     synthStateRef.current = { transposeBase, octaveShift };
@@ -99,6 +109,7 @@ export const SynthProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       localStorage.setItem(SYNTH_STORAGE_KEY, JSON.stringify({
         instrument: currentInstrument,
+        sampleSource,
         masterVolume,
         keyVelocity,
         sustainLevel,
@@ -106,30 +117,42 @@ export const SynthProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {
       // Preferences remain available for the current session.
     }
-  }, [currentInstrument, keyVelocity, masterVolume, sustainLevel]);
+  }, [currentInstrument, sampleSource, keyVelocity, masterVolume, sustainLevel]);
 
   const cycleSustain = useCallback(() => {
     const levels: SustainLevel[] = ['OFF', 'SHORT', 'LONG'];
     setSustainLevel(prev => levels[(levels.indexOf(prev) + 1) % levels.length]);
   }, []);
 
-  const loadInstrument = useCallback(async (id: InstrumentID): Promise<boolean> => {
+  const loadInstrument = useCallback(async (id: InstrumentID, source: SampleSourceID): Promise<boolean> => {
     const requestId = ++instrumentRequestRef.current;
+    const startedAt = performance.now();
+    // Lets analytics compare how each download server performs, per country.
+    const reportLoad = (result: 'ok' | 'partial' | 'failed') => trackEvent('sample_load', {
+      sample_source: source,
+      instrument: id,
+      result,
+      load_ms: Math.round(performance.now() - startedAt),
+      failed_samples: audioEngine.networkErrors.length,
+    });
     setIsLoading(true);
     setToast(null);
     try {
-      await audioEngine.init(id);
+      await audioEngine.init(id, source);
       if (requestId !== instrumentRequestRef.current) return false;
       setCurrentInstrument(id);
-      if (audioEngine.networkErrors.length > 0) {
+      const failedCount = audioEngine.networkErrors.length;
+      reportLoad(failedCount > 0 ? 'partial' : 'ok');
+      if (failedCount > 0) {
         setToast({
-          message: t.errors.samplesFailed.replace('{count}', String(audioEngine.networkErrors.length)),
+          message: t.errors.samplesFailed.replace('{count}', String(failedCount)),
           variant: 'warning',
         });
       }
       return true;
     } catch {
       if (requestId === instrumentRequestRef.current) {
+        reportLoad('failed');
         setToast({ message: t.errors.audioInitFailed, variant: 'error' });
       }
       return false;
@@ -140,8 +163,8 @@ export const SynthProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [t.errors.audioInitFailed, t.errors.samplesFailed]);
 
-  const startLoading = useCallback((id: InstrumentID) => {
-    const loading = loadInstrument(id).then(ok => {
+  const startLoading = useCallback((id: InstrumentID, source: SampleSourceID) => {
+    const loading = loadInstrument(id, source).then(ok => {
       // Let a later attempt retry after a failed download.
       if (!ok && loadPromiseRef.current === loading) loadPromiseRef.current = null;
       return ok;
@@ -153,30 +176,45 @@ export const SynthProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Fetch and decode samples up front so the very first note is audible. This
   // needs no user gesture -- only resuming the context does.
   useEffect(() => {
-    if (!loadPromiseRef.current) startLoading(currentInstrumentRef.current);
+    if (!loadPromiseRef.current) startLoading(currentInstrumentRef.current, sampleSourceRef.current);
   }, [startLoading]);
 
   const ensureAudioStarted = useCallback((): Promise<boolean> => {
     audioEngine.unlock();
-    return loadPromiseRef.current ?? startLoading(currentInstrumentRef.current);
+    return loadPromiseRef.current ?? startLoading(currentInstrumentRef.current, sampleSourceRef.current);
   }, [startLoading]);
 
   const handleInstrumentChange = useCallback(async (id: InstrumentID) => {
     if (id === currentInstrumentRef.current && audioEngine.isLoaded) return;
     // Picking an instrument is a user gesture, so it can also unlock playback.
     audioEngine.unlock();
-    await startLoading(id);
+    await startLoading(id, sampleSourceRef.current);
+  }, [startLoading]);
+
+  const handleSampleSourceChange = useCallback(async (source: SampleSourceID) => {
+    const previous = sampleSourceRef.current;
+    if (source === previous && audioEngine.isLoaded) return;
+    if (source !== previous) {
+      sampleSourceRef.current = source;
+      setSampleSource(source);
+      trackEvent('sample_source_change', { sample_source: source, previous_source: previous });
+    }
+    // Changing the setting is a user gesture, so it can also unlock playback.
+    audioEngine.unlock();
+    await startLoading(currentInstrumentRef.current, source);
   }, [startLoading]);
 
   const value = useMemo(() => ({
     isLoading, setIsLoading,
     currentInstrument, handleInstrumentChange, ensureAudioStarted,
+    sampleSource, handleSampleSourceChange,
     transposeBase, setTransposeBase, octaveShift, setOctaveShift,
     masterVolume, setMasterVolume, keyVelocity, setKeyVelocity,
     sustainLevel, setSustainLevel, cycleSustain,
     synthStateRef, toast, setToast,
   }), [
     isLoading, currentInstrument, handleInstrumentChange, ensureAudioStarted,
+    sampleSource, handleSampleSourceChange,
     transposeBase, octaveShift, masterVolume, keyVelocity,
     sustainLevel, cycleSustain, toast,
   ]);

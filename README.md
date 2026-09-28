@@ -72,11 +72,11 @@ Track name, channel and program number from an imported file are kept and writte
 | Installable PWA | Supported | Varies by platform | Supported on current Apple platforms |
 | Web MIDI keyboard input | Supported | Not generally available | Not generally available |
 
-Chrome or Edge is recommended when using a physical MIDI keyboard. Audio sample files are fetched from the upstream sample hosts on first use. The service worker caches successfully downloaded samples for later sessions, but a sound that has never been loaded still requires a network connection.
+Chrome or Edge is recommended when using a physical MIDI keyboard. Audio sample files are fetched on first use from the server chosen in **Settings → Sample server**: the upstream GitHub hosts by default, or a jsDelivr mirror (Fastly or Gcore) of the same files, pinned to a fixed commit. If sounds stay silent or load slowly, as can happen from mainland China, switch servers there. The service worker caches successfully downloaded samples for later sessions, but a sound that has never been loaded still requires a network connection.
 
 ## Privacy
 
-KeyPiano runs in the browser and does not upload performances. The site uses Google Analytics to count visits; nothing you play is sent to it. Selecting the coffee link or a related project opens that external site in a new tab.
+KeyPiano runs in the browser and does not upload performances. The site uses Google Analytics to count visits and to record which sample server is chosen and how long its samples take to load (`sample_source_change` and `sample_load` events); nothing you play is sent to it. Selecting the coffee link or a related project opens that external site in a new tab.
 
 ## Production build
 

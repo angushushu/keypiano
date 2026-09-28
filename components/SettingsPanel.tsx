@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react';
-import { Map as MapIcon, Palette, Languages, Usb } from 'lucide-react';
+import { Map as MapIcon, Palette, Languages, Usb, Server } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
+import { useSynth } from '../contexts/SynthContext';
+import { SAMPLE_SOURCES, isSampleSourceID } from '../services/sampleSources';
 import { THEMES, ThemeID } from '../theme';
 import { KEYMAP_PRESETS, KeymapID } from '../constants';
 import { Language } from '../i18n';
@@ -15,6 +17,8 @@ interface SettingsPanelProps {
   midiStatus: 'idle' | 'requesting' | 'connected' | 'denied' | 'unsupported';
   midiInputCount: number;
   requestMidiAccess: () => Promise<void>;
+  /** Recording or playback is running, so the sound set must not be reloaded. */
+  isSampleSourceLocked: boolean;
 }
 
 const SettingsPanel: React.FC<SettingsPanelProps> = ({
@@ -27,8 +31,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   midiStatus,
   midiInputCount,
   requestMidiAccess,
+  isSampleSourceLocked,
 }) => {
   const { language, setLanguage, themeId, setThemeId, theme, t } = useSettings();
+  const { sampleSource, handleSampleSourceChange, isLoading } = useSynth();
   const firstSelectRef = useRef<HTMLSelectElement>(null);
 
   useEffect(() => {
@@ -85,6 +91,17 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         }} className={`bg-black/20 text-current text-xs p-1.5 rounded border outline-none focus:border-yellow-500 cursor-pointer ${theme.panelBorder} ${theme.toolbarText}`}>
           <option value="en">English</option><option value="zh">中文</option>
         </select>
+      </div>
+      <div className={`h-px border-b ${theme.panelBorder}`}></div>
+      <div className="flex flex-col gap-1">
+        <label htmlFor="sample-source-select" className={`flex items-center gap-2 text-xs px-1 ${theme.toolbarText}`}><Server className="w-3 h-3" /><span>{t.sampleSource.title}</span></label>
+        <select id="sample-source-select" value={sampleSource} disabled={isLoading || isSampleSourceLocked} aria-describedby="sample-source-hint" onChange={(e) => {
+          const value = e.target.value;
+          if (isSampleSourceID(value)) void handleSampleSourceChange(value);
+        }} className={`bg-black/20 text-current text-xs p-1.5 rounded border outline-none focus:border-yellow-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${theme.panelBorder} ${theme.toolbarText}`}>
+          {SAMPLE_SOURCES.map(source => (<option key={source.id} value={source.id}>{t.sampleSource.options[source.id]}</option>))}
+        </select>
+        <p id="sample-source-hint" className={`text-[11px] px-1 ${theme.toolbarText} opacity-70`}>{t.sampleSource.hint}</p>
       </div>
       <div className={`h-px border-b ${theme.panelBorder}`}></div>
       <div className="flex flex-col gap-2">

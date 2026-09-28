@@ -1,6 +1,7 @@
 
 
 import { NOTE_NAMES, FLAT_TO_SHARP } from '../constants';
+import { DEFAULT_SAMPLE_SOURCE, getSampleBaseUrl, SampleSourceID } from './sampleSources';
 
 // Audio Engine - Sampler Based
 
@@ -26,8 +27,9 @@ export const METRONOME_SOUNDS: { id: MetronomeSound }[] = [
     { id: 'woodblock' }
 ];
 
-// Source 1: Salamander Grand Piano (Yamaha C5) - Hosted by Tone.js
-const SALAMANDER_BASE = 'https://tonejs.github.io/audio/salamander/';
+// Sample sets. Base URLs depend on the chosen download source (see sampleSources.ts).
+
+// Set 1: Salamander Grand Piano (Yamaha C5) - Hosted by Tone.js
 const SALAMANDER_MAP: Record<string, string> = {
     'A0': 'A0.mp3', 'C1': 'C1.mp3', 'D#1': 'Ds1.mp3', 'F#1': 'Fs1.mp3', 'A1': 'A1.mp3',
     'C2': 'C2.mp3', 'D#2': 'Ds2.mp3', 'F#2': 'Fs2.mp3', 'A2': 'A2.mp3',
@@ -39,8 +41,7 @@ const SALAMANDER_MAP: Record<string, string> = {
     'C8': 'C8.mp3'
 };
 
-// Source 2: Original High Quality Piano (fuhton)
-const HQ_PIANO_BASE = 'https://raw.githubusercontent.com/fuhton/piano-mp3/master/piano-mp3/';
+// Set 2: Original High Quality Piano (fuhton)
 const HQ_PIANO_MAP: Record<string, string> = {
   'A0': 'A0.mp3', 
   'C1': 'C1.mp3', 'D#1': 'Eb1.mp3', 'F#1': 'Gb1.mp3', 'A1': 'A1.mp3',
@@ -53,8 +54,7 @@ const HQ_PIANO_MAP: Record<string, string> = {
   'C8': 'C8.mp3'
 };
 
-// Source 3: General MIDI (gleitz/midi-js-soundfonts - Musyng Kite)
-const GM_BASE = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/';
+// Set 3: General MIDI (gleitz/midi-js-soundfonts - Musyng Kite), one folder per instrument
 
 export type SustainLevel = 'OFF' | 'SHORT' | 'LONG';
 
@@ -80,6 +80,7 @@ class AudioEngine {
     private sustainLevel: SustainLevel = 'SHORT';
     private isSustainOverrideDown: boolean = false; // For physical MIDI CC 64 pedal
     private currentInstrument: InstrumentID = 'salamander';
+    private sampleSource: SampleSourceID = DEFAULT_SAMPLE_SOURCE;
 
     // Metronome State
     private nextNoteTime: number = 0.0;
@@ -95,11 +96,14 @@ class AudioEngine {
      * the context stays suspended until `unlock()` runs inside one, but samples
      * can already be fetched and decoded so the first note is audible at once.
      */
-    public async init(instrumentId: InstrumentID = 'salamander') {
+    public async init(
+        instrumentId: InstrumentID = 'salamander',
+        sampleSource: SampleSourceID = this.sampleSource
+    ) {
         this.ensureContext();
 
-        if (this.currentInstrument !== instrumentId || !this.isLoaded) {
-            await this.loadInstrument(instrumentId);
+        if (this.currentInstrument !== instrumentId || this.sampleSource !== sampleSource || !this.isLoaded) {
+            await this.loadInstrument(instrumentId, sampleSource);
         }
     }
 
@@ -293,7 +297,7 @@ class AudioEngine {
         }
     }
 
-    private async loadInstrument(instrumentId: InstrumentID) {
+    private async loadInstrument(instrumentId: InstrumentID, sampleSource: SampleSourceID) {
         const generation = ++this.loadGeneration;
         this.loadAbortController?.abort();
         const controller = new AbortController();
@@ -304,14 +308,15 @@ class AudioEngine {
         this.buffers.clear();
         this.networkErrors = [];
         this.currentInstrument = instrumentId;
+        this.sampleSource = sampleSource;
 
         const instDef = INSTRUMENTS.find(i => i.id === instrumentId);
         if (!instDef) throw new Error(`Unknown instrument: ${instrumentId}`);
 
         if (instrumentId === 'salamander') {
-            await this.loadSamples(SALAMANDER_BASE, SALAMANDER_MAP, generation, controller.signal);
+            await this.loadSamples(getSampleBaseUrl(sampleSource, 'salamander'), SALAMANDER_MAP, generation, controller.signal);
         } else if (instrumentId === 'hq_piano') {
-            await this.loadSamples(HQ_PIANO_BASE, HQ_PIANO_MAP, generation, controller.signal);
+            await this.loadSamples(getSampleBaseUrl(sampleSource, 'hq_piano'), HQ_PIANO_MAP, generation, controller.signal);
         } else {
             // GM Logic
             const map: Record<string, string> = {};
@@ -320,7 +325,8 @@ class AudioEngine {
                 map[this.midiToStandard(i)] = `${noteName}.mp3`;
             }
             if (!map['C4']) map['C4'] = 'C4.mp3';
-            await this.loadSamples(`${GM_BASE}${instrumentId}-mp3/`, map, generation, controller.signal);
+            const gmBase = getSampleBaseUrl(sampleSource, 'gm');
+            await this.loadSamples(`${gmBase}${instrumentId}-mp3/`, map, generation, controller.signal);
         }
 
         if (generation !== this.loadGeneration || controller.signal.aborted) return;

@@ -8,6 +8,20 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+### Added
+
+- **Settings → Sample server**: download samples from the upstream GitHub
+  hosts (default) or from a jsDelivr mirror (Fastly or Gcore) pinned to a
+  fixed commit, for players who cannot reach GitHub, such as those in
+  mainland China. The choice is remembered, and the service worker caches
+  samples from every server.
+- Google Analytics events `sample_source_change` and `sample_load` (server,
+  instrument, result, load time, failed-sample count) to compare servers.
+
+### Changed
+
+- The sound-loading error now suggests switching the sample server.
+
 ### Fixed
 
 - Holding Tab (mapped to a note) no longer moves focus onto the toolbar and

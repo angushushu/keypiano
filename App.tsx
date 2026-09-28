@@ -454,6 +454,7 @@ const AppInner: React.FC = () => {
         midiStatus={midiStatus}
         midiInputCount={midiInputCount}
         requestMidiAccess={requestMidiAccess}
+        isSampleSourceLocked={isRecording || isPlayingBack}
       />
 
       {/* Main Content Area */}

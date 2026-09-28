@@ -1,3 +1,5 @@
+import type { SampleSourceID } from './services/sampleSources';
+
 export type Language = 'en' | 'zh';
 
 interface TranslationSet {
@@ -61,6 +63,11 @@ interface TranslationSet {
     denied: string;
     unsupported: string;
     inputs: string;
+  };
+  sampleSource: {
+    title: string;
+    hint: string;
+    options: Record<SampleSourceID, string>;
   };
   instruments: {
     salamander: string;
@@ -194,6 +201,15 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
       unsupported: 'Web MIDI is not supported in this browser',
       inputs: 'inputs connected',
     },
+    sampleSource: {
+      title: 'Sample server',
+      hint: 'If notes are silent or slow to load, try another server. In mainland China, try a jsDelivr mirror.',
+      options: {
+        github: 'GitHub (default)',
+        jsdelivr_fastly: 'jsDelivr mirror · Fastly',
+        jsdelivr_gcore: 'jsDelivr mirror · Gcore',
+      },
+    },
     instruments: {
       salamander: 'Yamaha C5 Grand (Pro)',
       hq_piano: 'Standard Piano (Lite)',
@@ -237,7 +253,7 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     },
     errors: {
       midiParseFailed: 'Failed to parse MIDI file.',
-      audioInitFailed: 'Could not start the audio engine. Please try again.',
+      audioInitFailed: 'Could not load the sounds. Try again, or pick another sample server in Settings.',
       importDuringRecording: 'Stop recording before importing a MIDI file.',
       samplesFailed: '{count} samples failed to load. Using pitch-shift fallback.'
     }
@@ -321,6 +337,15 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
       unsupported: '此浏览器不支持 Web MIDI',
       inputs: '个输入设备已连接',
     },
+    sampleSource: {
+      title: '音源下载线路',
+      hint: '如果没有声音或加载很慢，可以换一条线路。中国大陆用户可以优先试试 jsDelivr 线路。',
+      options: {
+        github: 'GitHub（默认）',
+        jsdelivr_fastly: 'jsDelivr 镜像 · Fastly',
+        jsdelivr_gcore: 'jsDelivr 镜像 · Gcore',
+      },
+    },
     instruments: {
       salamander: '雅马哈 C5 三角钢琴 (专业)',
       hq_piano: '标准钢琴 (轻量)',
@@ -364,7 +389,7 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     },
     errors: {
       midiParseFailed: '无法解析 MIDI 文件。',
-      audioInitFailed: '无法启动音频引擎，请重试。',
+      audioInitFailed: '音色加载失败。请重试，或在设置中切换音源下载线路。',
       importDuringRecording: '请先停止录音，再导入 MIDI 文件。',
       samplesFailed: '{count} 个采样加载失败，已改用变调回退。'
     }

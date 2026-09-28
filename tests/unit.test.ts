@@ -6,6 +6,8 @@ import { RecordedEvent } from '../types';
 import { computeActiveEvents } from '../hooks/useAudioScheduler';
 import { initialRecordingState, recordingReducer } from '../hooks/useRecordingState';
 import { TRANSLATIONS, Language } from '../i18n';
+import { SAMPLE_SOURCES, SampleLibrary, getSampleBaseUrl, isSampleSourceID } from '../services/sampleSources';
+import { trackEvent } from '../services/analytics';
 
 type TestCase = {
   name: string;
@@ -159,6 +161,68 @@ test('localized templates keep the placeholders their call sites fill in', () =>
   for (const language of ['en', 'zh'] as Language[]) {
     assert.match(TRANSLATIONS[language].playNote, /\{note\}/);
     assert.match(TRANSLATIONS[language].errors.samplesFailed, /\{count\}/);
+  }
+});
+
+const SAMPLE_LIBRARIES: SampleLibrary[] = ['salamander', 'hq_piano', 'gm'];
+
+test('the default GitHub sample source keeps the original upstream URLs', () => {
+  assert.equal(getSampleBaseUrl('github', 'salamander'), 'https://tonejs.github.io/audio/salamander/');
+  assert.equal(getSampleBaseUrl('github', 'hq_piano'), 'https://raw.githubusercontent.com/fuhton/piano-mp3/master/piano-mp3/');
+  assert.equal(getSampleBaseUrl('github', 'gm'), 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/');
+});
+
+test('every sample source serves every library from an https folder URL', () => {
+  for (const source of SAMPLE_SOURCES) {
+    for (const library of SAMPLE_LIBRARIES) {
+      const url = getSampleBaseUrl(source.id, library);
+      assert.match(url, /^https:\/\/[^/]+\/.+\/$/, `${source.id}/${library} is not an https folder URL`);
+    }
+  }
+});
+
+test('jsDelivr mirrors are pinned to a commit so cached samples never change', () => {
+  const mirrors = SAMPLE_SOURCES.filter(source => source.id.startsWith('jsdelivr_'));
+  assert.ok(mirrors.length > 0, 'expected at least one jsDelivr mirror');
+  for (const source of mirrors) {
+    for (const library of SAMPLE_LIBRARIES) {
+      assert.match(getSampleBaseUrl(source.id, library), /@[0-9a-f]{40}\//, `${source.id}/${library} is not pinned`);
+    }
+  }
+});
+
+test('isSampleSourceID accepts only known sources', () => {
+  assert.equal(isSampleSourceID('github'), true);
+  assert.equal(isSampleSourceID('jsdelivr_fastly'), true);
+  assert.equal(isSampleSourceID('unknown'), false);
+  assert.equal(isSampleSourceID(undefined), false);
+});
+
+test('every sample source has a label in both locales', () => {
+  for (const language of ['en', 'zh'] as Language[]) {
+    for (const source of SAMPLE_SOURCES) {
+      assert.ok(TRANSLATIONS[language].sampleSource.options[source.id], `${language} has no label for ${source.id}`);
+    }
+  }
+});
+
+test('trackEvent is a no-op without the analytics tag and forwards to it when present', () => {
+  const globals = globalThis as { window?: unknown };
+  const originalWindow = globals.window;
+  try {
+    delete globals.window;
+    assert.doesNotThrow(() => trackEvent('sample_load', { sample_source: 'github' }));
+
+    const calls: unknown[][] = [];
+    globals.window = { gtag: (...args: unknown[]) => { calls.push(args); } };
+    trackEvent('sample_load', { sample_source: 'jsdelivr_gcore' });
+    assert.deepEqual(calls, [['event', 'sample_load', { sample_source: 'jsdelivr_gcore' }]]);
+
+    globals.window = { gtag: () => { throw new Error('blocked'); } };
+    assert.doesNotThrow(() => trackEvent('sample_load'));
+  } finally {
+    if (originalWindow === undefined) delete globals.window;
+    else globals.window = originalWindow;
   }
 });
 
