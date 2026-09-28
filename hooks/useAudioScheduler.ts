@@ -1,12 +1,17 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { audioEngine } from '../services/audioEngine';
 import { RecordedEvent, TriggerNote } from '../types';
-import { getTransposedNote } from '../constants';
+import { getTransposedNote, noteToMidi } from '../constants';
+import {
+    WaitGate, findNextGate, isGateSatisfied, isWithinGateWindow, remainingNotes, withHit,
+} from '../services/waitGate';
 import type { TickWorkerMessage } from '../workers/tickWorker';
 
 interface UseAudioSchedulerProps {
     recordingRef: React.MutableRefObject<RecordedEvent[]>;
     isPracticeMode: boolean;
+    /** In practice mode, halt at each note until the player presses it. */
+    isWaitMode: boolean;
     playbackSpeed: number;
     leftHandMap: Map<string, string>;
     rightHandMap: Map<string, string>;
@@ -129,6 +134,7 @@ export function emitTriggerNotes(
 export function useAudioScheduler({
     recordingRef,
     isPracticeMode,
+    isWaitMode,
     playbackSpeed,
     leftHandMap,
     rightHandMap,
@@ -143,6 +149,8 @@ export function useAudioScheduler({
     elapsedTime
 }: UseAudioSchedulerProps) {
     const [isPlayingBack, setIsPlayingBack] = useState(false);
+    /** Notes still to press while wait mode holds the clock, or null when not waiting. */
+    const [waitingRemaining, setWaitingRemaining] = useState<number | null>(null);
     
     // Playback Refs needed for precise scheduling
     const animFrameRef = useRef<number | null>(null);
@@ -151,6 +159,10 @@ export function useAudioScheduler({
     const playbackStartOffsetRef = useRef<number>(0); 
     const playbackSpeedRef = useRef<number>(playbackSpeed); 
     const isPracticeModeRef = useRef<boolean>(isPracticeMode);
+    const isWaitModeRef = useRef<boolean>(isWaitMode);
+    const isPlayingRef = useRef(false);
+    const gateRef = useRef<WaitGate | null>(null);
+    const isWaitingRef = useRef(false);
     
     // Extracted state for fingering visuals
     const playbackKeysRef = useRef<Set<string>>(new Set());
@@ -162,9 +174,88 @@ export function useAudioScheduler({
     const workerRef = useRef<Worker | null>(null);
 
     useEffect(() => { playbackSpeedRef.current = playbackSpeed; }, [playbackSpeed]);
-    useEffect(() => { isPracticeModeRef.current = isPracticeMode; }, [isPracticeMode]);
+    const readTrackTimeMs = () => (
+        (audioEngine.currentTime - audioContextStartTimeRef.current) * playbackSpeedRef.current * 1000
+    ) + playbackStartOffsetRef.current;
+
+    const isWaitActive = () => isPracticeModeRef.current && isWaitModeRef.current;
+
+    // Pins the clock to `timeMs`; resuming later continues from there.
+    const holdClockAt = (timeMs: number) => {
+        playbackStartOffsetRef.current = timeMs;
+        audioContextStartTimeRef.current = audioEngine.currentTime;
+    };
+
+    const clearWait = () => {
+        isWaitingRef.current = false;
+        setWaitingRemaining(null);
+    };
+
+    const releaseGate = () => {
+        const gate = gateRef.current;
+        if (!gate) return;
+        if (isWaitingRef.current) holdClockAt(gate.timeMs);
+        gateRef.current = findNextGate(recordingRef.current, gate.endTimeMs, false);
+        clearWait();
+    };
+
+    /**
+     * Called before either loop reads the clock: passes gates the player has
+     * already satisfied and holds the clock at the first one they have not.
+     */
+    const applyWaitGate = () => {
+        if (!isWaitActive()) return;
+        if (isWaitingRef.current) {
+            if (gateRef.current) holdClockAt(gateRef.current.timeMs);
+            return;
+        }
+        const trackTimeMs = readTrackTimeMs();
+        while (gateRef.current && trackTimeMs >= gateRef.current.timeMs && isGateSatisfied(gateRef.current)) {
+            gateRef.current = findNextGate(recordingRef.current, gateRef.current.endTimeMs, false);
+        }
+        const gate = gateRef.current;
+        if (!gate || trackTimeMs < gate.timeMs) return;
+        isWaitingRef.current = true;
+        holdClockAt(gate.timeMs);
+        setWaitingRemaining(remainingNotes(gate));
+    };
+
+    // Toggling practice or wait mode mid-piece restarts gating from "now", so
+    // a stale gate behind the playhead can never pull the clock backwards.
+    useEffect(() => {
+        isPracticeModeRef.current = isPracticeMode;
+        isWaitModeRef.current = isWaitMode;
+        if (isWaitingRef.current) clearWait();
+        gateRef.current = isPlayingRef.current
+            ? findNextGate(recordingRef.current, readTrackTimeMs(), true)
+            : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isPracticeMode, isWaitMode]);
+
+    /** Reports a note the player pressed (any input), in sounding pitch. */
+    const registerUserNote = useCallback((note: string) => {
+        const gate = gateRef.current;
+        if (!gate || !isPlayingRef.current || !isWaitActive()) return;
+        if (!isWaitingRef.current && !isWithinGateWindow(gate, readTrackTimeMs(), playbackSpeedRef.current)) return;
+        const next = withHit(gate, noteToMidi(note));
+        if (next === gate) return;
+        gateRef.current = next;
+        if (!isWaitingRef.current) return;
+        if (isGateSatisfied(next)) releaseGate();
+        else setWaitingRemaining(remainingNotes(next));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    /** Lets the player move past notes they cannot reach, e.g. outside the key map. */
+    const skipWaitingNotes = useCallback(() => {
+        if (isWaitingRef.current) releaseGate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const pausePlayback = () => {
+        isPlayingRef.current = false;
+        clearWait();
+        gateRef.current = null;
         setIsPlayingBack(false);
         audioEngine.stopAllNotes();
         workerRef.current?.postMessage('stop');
@@ -206,6 +297,9 @@ export function useAudioScheduler({
         }
     
         audioContextStartTimeRef.current = audioEngine.currentTime;
+        gateRef.current = findNextGate(recordingRef.current, playbackStartOffsetRef.current, true);
+        clearWait();
+        isPlayingRef.current = true;
         setIsPlayingBack(true);
         setPlaybackKeys(new Set());
         setPlaybackNotes(new Set());
@@ -252,6 +346,7 @@ export function useAudioScheduler({
 
     const runAudioScheduler = () => {
         if (recordingRef.current.length === 0) return;
+        applyWaitGate();
 
         const currentCtxTime = audioEngine.currentTime;
         const speed = playbackSpeedRef.current;
@@ -276,7 +371,9 @@ export function useAudioScheduler({
                          audioEngine.playNote(evt.note, evt.transpose, evt.velocity, absolutePlayTime);
                      }
                  }
-            } else {
+            } else if (!isPracticeModeRef.current) {
+                 // Practice mode never starts playback notes, and stopping one
+                 // here would cut off the player's own note of the same pitch.
                  audioEngine.stopNote(evt.note, evt.transpose, absolutePlayTime);
             }
             nextIdx++;
@@ -295,15 +392,16 @@ export function useAudioScheduler({
     const visualLoop = () => {
         const events = recordingRef.current;
         if (events.length === 0 || !workerRef.current) return;
+        applyWaitGate();
 
-        const currentCtxTime = audioEngine.currentTime;
-        const speed = playbackSpeedRef.current;
-        const currentTrackTimeMs = ((currentCtxTime - audioContextStartTimeRef.current) * speed * 1000) + playbackStartOffsetRef.current;
-        
+        const currentTrackTimeMs = readTrackTimeMs();
+
         setElapsedTime(currentTrackTimeMs > 0 ? currentTrackTimeMs : 0);
-        
-        // 1. Compute active notes at current time
-        const activeNotesMap = computeActiveEvents(events, currentTrackTimeMs);
+
+        // 1. Compute active notes at current time. While waiting, light the
+        // whole chord being waited for, not just its first note.
+        const heldGate = isWaitingRef.current ? gateRef.current : null;
+        const activeNotesMap = computeActiveEvents(events, heldGate ? heldGate.endTimeMs : currentTrackTimeMs);
         
         // 2. Assign fingering
         const { activeKeys, activeNotes } = assignFingering(
@@ -391,6 +489,9 @@ export function useAudioScheduler({
         isPlayingBack,
         togglePlayback,
         pausePlayback,
-        changePlaybackSpeedAnchor
+        changePlaybackSpeedAnchor,
+        waitingRemaining,
+        registerUserNote,
+        skipWaitingNotes,
     };
 }

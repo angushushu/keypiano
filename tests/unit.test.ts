@@ -8,6 +8,8 @@ import { initialRecordingState, recordingReducer } from '../hooks/useRecordingSt
 import { TRANSLATIONS, Language } from '../i18n';
 import { SAMPLE_SOURCES, SampleLibrary, getSampleBaseUrl, isSampleSourceID } from '../services/sampleSources';
 import { trackEvent } from '../services/analytics';
+import { closeOpenNotes, sanitizeEvents, selectTakesToPrune, summarizeEvents } from '../services/takeStore';
+import { findNextGate, isGateSatisfied, isWithinGateWindow, remainingNotes, withHit } from '../services/waitGate';
 
 type TestCase = {
   name: string;
@@ -161,6 +163,10 @@ test('localized templates keep the placeholders their call sites fill in', () =>
   for (const language of ['en', 'zh'] as Language[]) {
     assert.match(TRANSLATIONS[language].playNote, /\{note\}/);
     assert.match(TRANSLATIONS[language].errors.samplesFailed, /\{count\}/);
+    assert.match(TRANSLATIONS[language].takes.recordingName, /\{date\}/);
+    assert.match(TRANSLATIONS[language].takes.notes, /\{count\}/);
+    assert.match(TRANSLATIONS[language].takes.notesOne, /\{count\}/);
+    assert.match(TRANSLATIONS[language].waitMode.waiting, /\{count\}/);
   }
 });
 
@@ -224,6 +230,90 @@ test('trackEvent is a no-op without the analytics tag and forwards to it when pr
     if (originalWindow === undefined) delete globals.window;
     else globals.window = originalWindow;
   }
+});
+
+const on = (time: number, note: string, extra: Partial<RecordedEvent> = {}): RecordedEvent => (
+  { time, type: 'on', note, transpose: 0, instrumentId: 'salamander', velocity: 100, ...extra }
+);
+const off = (time: number, note: string, extra: Partial<RecordedEvent> = {}): RecordedEvent => (
+  { time, type: 'off', note, transpose: 0, instrumentId: 'salamander', ...extra }
+);
+
+test('summarizeEvents reports duration and note count', () => {
+  assert.deepEqual(summarizeEvents([]), { durationMs: 0, noteCount: 0 });
+  assert.deepEqual(summarizeEvents([on(0, 'C4'), on(100, 'E4'), off(900, 'C4'), off(1200, 'E4')]), { durationMs: 1200, noteCount: 2 });
+});
+
+test('closeOpenNotes ends only the notes still held', () => {
+  const events = [on(0, 'C4', { code: 'KeyQ' }), off(200, 'C4', { code: 'KeyQ' }), on(300, 'E4', { code: 'KeyE' })];
+  const closed = closeOpenNotes(events, 1000);
+  assert.equal(closed.length, 4);
+  assert.deepEqual(closed[3], off(1000, 'E4', { code: 'KeyE' }));
+  const balanced = events.slice(0, 2);
+  assert.equal(closeOpenNotes(balanced, 1000), balanced, 'nothing held means nothing appended');
+});
+
+test('closeOpenNotes closes each overlapping instance of the same pitch', () => {
+  const closed = closeOpenNotes([on(0, 'C4'), on(100, 'C4')], 500);
+  assert.equal(closed.filter(evt => evt.type === 'off').length, 2);
+});
+
+test('selectTakesToPrune keeps the newest takes', () => {
+  const takes = [1, 5, 3, 4, 2].map(n => ({ id: `t${n}`, createdAt: n }));
+  assert.deepEqual(selectTakesToPrune(takes, 3), ['t2', 't1']);
+  assert.deepEqual(selectTakesToPrune(takes, 10), []);
+});
+
+test('sanitizeEvents drops malformed stored events and sorts by time', () => {
+  const events = sanitizeEvents([
+    on(500, 'E4'),
+    { time: -1, type: 'on', note: 'C4' },
+    { time: 10, type: 'hold', note: 'C4' },
+    { time: 20, type: 'on', note: '<script>' },
+    null,
+    { time: 100, type: 'on', note: 'C#4', instrumentId: 'not-an-instrument', velocity: 400 },
+  ]);
+  assert.deepEqual(events.map(evt => evt.time), [100, 500]);
+  assert.equal(events[0].instrumentId, 'salamander');
+  assert.equal(events[0].velocity, 127);
+  assert.deepEqual(sanitizeEvents('not an array'), []);
+});
+
+test('findNextGate groups near-simultaneous notes into one chord', () => {
+  const events = [on(0, 'C4'), on(30, 'E4'), on(50, 'G4'), off(400, 'C4'), on(500, 'D4')];
+  const first = findNextGate(events, 0);
+  assert.deepEqual(first && { timeMs: first.timeMs, endTimeMs: first.endTimeMs, required: first.required }, { timeMs: 0, endTimeMs: 50, required: [60, 64, 67] });
+  const second = findNextGate(events, 50, false);
+  assert.deepEqual(second?.required, [62]);
+  assert.equal(findNextGate(events, 500, false), null);
+});
+
+test('findNextGate compares sounding pitch, so transposed and enharmonic notes match', () => {
+  const gate = findNextGate([on(0, 'C4', { transpose: 1 })], 0);
+  assert.ok(gate);
+  assert.deepEqual(gate.required, [61]);
+  assert.equal(isGateSatisfied(withHit(gate, 61)), true);
+});
+
+test('a wait gate is satisfied only when every chord note has been pressed', () => {
+  const gate = findNextGate([on(0, 'C4'), on(10, 'E4')], 0);
+  assert.ok(gate);
+  const wrong = withHit(gate, 62);
+  assert.equal(wrong, gate, 'a wrong note leaves the gate unchanged');
+  const half = withHit(gate, 60);
+  assert.equal(isGateSatisfied(half), false);
+  assert.equal(remainingNotes(half), 1);
+  assert.equal(withHit(half, 60), half, 'repeating a note does not count twice');
+  assert.equal(isGateSatisfied(withHit(half, 64)), true);
+});
+
+test('presses shortly before a gate count toward it, scaled by playback speed', () => {
+  const gate = findNextGate([on(1000, 'C4')], 0);
+  assert.ok(gate);
+  assert.equal(isWithinGateWindow(gate, 700, 1), true);
+  assert.equal(isWithinGateWindow(gate, 500, 1), false);
+  assert.equal(isWithinGateWindow(gate, 850, 0.25), false);
+  assert.equal(isWithinGateWindow(gate, 950, 0.25), true);
 });
 
 for (const { name, run } of tests) {

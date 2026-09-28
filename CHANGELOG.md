@@ -17,6 +17,14 @@ Entries before 1.1.0 are summarised from the commit history.
   samples from every server.
 - Google Analytics events `sample_source_change` and `sample_load` (server,
   instrument, result, load time, failed-sample count) to compare servers.
+- Recordings and imported MIDI files are saved automatically in IndexedDB,
+  snapshotted every 5 seconds while recording, and the latest is restored on
+  load. A **Recent recordings** panel keeps the 20 newest, to reopen or
+  delete. A new recording no longer discards the previous one; KeyPiano only
+  asks first when the browser refused to store it.
+- Practice **wait mode** (on by default): playback halts at each note or
+  chord until the player presses all its pitches on any input, with a Skip
+  button for unreachable notes.
 
 ### Changed
 
@@ -27,6 +35,11 @@ Entries before 1.1.0 are summarised from the commit history.
 - Holding Tab (mapped to a note) no longer moves focus onto the toolbar and
   stops the keyboard from playing: auto-repeat keydowns now have their
   default action blocked too.
+- Clicking Record, Play or Reset no longer leaves keyboard focus on that
+  button, which made the computer keyboard stop playing until the page was
+  clicked.
+- In practice mode, a playback note-off no longer cuts off the player's own
+  note of the same pitch.
 
 ## [1.2.0] - 2026-09-16
 

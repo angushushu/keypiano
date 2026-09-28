@@ -10,6 +10,8 @@ interface UseMidiDeviceProps {
     addRecordingEvent: (evt: RecordedEvent) => void;
     setTriggerNotes: (updater: (prev: TriggerNote[]) => TriggerNote[]) => void;
     setActiveMidiNotes: (updater: (prev: Set<string>) => Set<string>) => void;
+    /** Reports each note-on, e.g. so practice wait mode can count it. */
+    onUserNote: (note: string) => void;
 }
 
 export function useMidiDevice({
@@ -18,7 +20,8 @@ export function useMidiDevice({
     recordingStartTime,
     addRecordingEvent,
     setTriggerNotes,
-    setActiveMidiNotes
+    setActiveMidiNotes,
+    onUserNote,
 }: UseMidiDeviceProps) {
     const getMidiRequest = () => Reflect.get(navigator, 'requestMIDIAccess') as
         (() => Promise<WebMidi.MIDIAccess>) | undefined;
@@ -80,6 +83,7 @@ export function useMidiDevice({
                     midiNoteCountsRef.current.set(noteName, (midiNoteCountsRef.current.get(noteName) ?? 0) + 1);
                     setActiveMidiNotes(prev => new Set(prev).add(noteName));
                     setTriggerNotes(prev => [...prev, { note: noteName, time: Date.now(), type: 'user' }]);
+                    onUserNote(noteName);
             
                     if (isRecordingRef.current) {
                         addRecordingEvent({
@@ -128,7 +132,7 @@ export function useMidiDevice({
                 }
             }
         };
-    }, [addRecordingEvent, setActiveMidiNotes, setTriggerNotes]);
+    }, [addRecordingEvent, setActiveMidiNotes, setTriggerNotes, onUserNote]);
 
     const releaseAllMidiNotes = useCallback(() => {
         midiNoteCountsRef.current.forEach((count, noteName) => {

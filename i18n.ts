@@ -69,6 +69,27 @@ interface TranslationSet {
     hint: string;
     options: Record<SampleSourceID, string>;
   };
+  takes: {
+    title: string;
+    empty: string;
+    /** Name shown for a recording, with `{date}` replaced by when it was made. */
+    recordingName: string;
+    /** Note count, with `{count}` replaced; `notesOne` is the singular form. */
+    notes: string;
+    notesOne: string;
+    current: string;
+    delete: string;
+    confirmDelete: string;
+    unavailable: string;
+    /** Asked before replacing a take that the browser could not save. */
+    confirmDiscard: string;
+  };
+  waitMode: {
+    toggle: string;
+    /** Shown while playback waits, with `{count}` replaced by the notes left. */
+    waiting: string;
+    skip: string;
+  };
   instruments: {
     salamander: string;
     hq_piano: string;
@@ -210,6 +231,23 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
         jsdelivr_gcore: 'jsDelivr mirror · Gcore',
       },
     },
+    takes: {
+      title: 'Recent recordings',
+      empty: 'Recordings and imported MIDI files are saved here automatically.',
+      recordingName: 'Recording {date}',
+      notes: '{count} notes',
+      notesOne: '{count} note',
+      current: 'Loaded',
+      delete: 'Delete',
+      confirmDelete: 'Delete this recording? This cannot be undone.',
+      unavailable: 'This browser is not saving recordings (for example in private mode), so they are lost when the page closes.',
+      confirmDiscard: 'The current recording could not be saved in this browser. Replace it anyway?',
+    },
+    waitMode: {
+      toggle: 'Wait for me: playback pauses until you play each note',
+      waiting: 'Play the highlighted notes · {count} left',
+      skip: 'Skip',
+    },
     instruments: {
       salamander: 'Yamaha C5 Grand (Pro)',
       hq_piano: 'Standard Piano (Lite)',
@@ -345,6 +383,23 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
         jsdelivr_fastly: 'jsDelivr 镜像 · Fastly',
         jsdelivr_gcore: 'jsDelivr 镜像 · Gcore',
       },
+    },
+    takes: {
+      title: '最近的录音',
+      empty: '录音和导入的 MIDI 文件会自动保存在这里。',
+      recordingName: '录音 {date}',
+      notes: '{count} 个音',
+      notesOne: '{count} 个音',
+      current: '当前',
+      delete: '删除',
+      confirmDelete: '删除这段录音？删除后无法恢复。',
+      unavailable: '当前浏览器没有保存录音（例如无痕模式），关闭页面后录音会丢失。',
+      confirmDiscard: '当前录音没能保存到浏览器中。仍然要替换它吗？',
+    },
+    waitMode: {
+      toggle: '等待模式：弹对每个音后才继续播放',
+      waiting: '请弹奏高亮的音 · 还剩 {count} 个',
+      skip: '跳过',
     },
     instruments: {
       salamander: '雅马哈 C5 三角钢琴 (专业)',

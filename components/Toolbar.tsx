@@ -2,7 +2,8 @@ import React from 'react';
 import {
   Volume2, Keyboard, Activity, Music,
   Circle, Square, Play, Pause, Timer, Info, ChevronDown, ChevronUp, RotateCcw,
-  Download, FileUp, Settings, ScrollText, Piano, GraduationCap, Gauge, ArrowDownToLine, Maximize
+  Download, FileUp, Settings, ScrollText, Piano, GraduationCap, Gauge, ArrowDownToLine, Maximize,
+  History, Hourglass
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { useSynth } from '../contexts/SynthContext';
@@ -42,6 +43,11 @@ interface ToolbarProps {
   playbackSpeed: number;
   isPracticeMode: boolean;
   setIsPracticeMode: (v: boolean | ((p: boolean) => boolean)) => void;
+  isWaitMode: boolean;
+  setIsWaitMode: (v: boolean) => void;
+  showTakes: boolean;
+  setShowTakes: (v: boolean) => void;
+  takesButtonRef: React.RefObject<HTMLButtonElement>;
   mainView: string;
   setMainView: (v: 'stave' | 'keyboard' | 'waterfall') => void;
   showPiano: boolean;
@@ -63,6 +69,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   toggleRecording, togglePlayback, stopAndReset,
   changePlaybackSpeed, playbackSpeed,
   isPracticeMode, setIsPracticeMode,
+  isWaitMode, setIsWaitMode,
+  showTakes, setShowTakes, takesButtonRef,
   mainView, setMainView, showPiano, setShowPiano,
   isSustainPedalDown, isLgUp,
   onImportMidi, onExportMidi,
@@ -168,15 +176,18 @@ const Toolbar: React.FC<ToolbarProps> = ({
             <button onClick={onExportMidi} disabled={recordedEvents.length === 0} className="p-1.5 rounded text-green-400 hover:bg-gray-700 hover:text-white disabled:opacity-30" title={t.exportMidi} aria-label={t.exportMidi}>
               <Download className="w-3.5 h-3.5" />
             </button>
+            <button ref={takesButtonRef} onClick={() => setShowTakes(!showTakes)} className={`p-1.5 rounded hover:bg-gray-700 hover:text-white ${showTakes ? 'bg-gray-700 text-white' : 'text-amber-400'}`} title={t.takes.title} aria-label={t.takes.title} aria-expanded={showTakes} aria-controls="keypiano-takes-panel">
+              <History className="w-3.5 h-3.5" />
+            </button>
           </div>
 
-          <button onClick={toggleRecording} className={`p-1.5 rounded-full transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-red-500 hover:bg-red-900/50'}`} title={t.record} aria-label={t.record} aria-pressed={isRecording}>
+          <button onMouseDown={preventMouseFocus} onClick={toggleRecording} className={`p-1.5 rounded-full transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-red-500 hover:bg-red-900/50'}`} title={t.record} aria-label={t.record} aria-pressed={isRecording}>
             {isRecording ? <Square className="w-3 h-3 fill-current" /> : <Circle className="w-3 h-3 fill-current" />}
           </button>
-          <button onClick={togglePlayback} disabled={isRecording || recordedEvents.length === 0} className={`p-1.5 rounded-full transition-all ${isPlayingBack ? 'bg-yellow-500 text-black' : 'text-green-500 hover:bg-green-900/50 disabled:opacity-30'}`} title={t.playPause} aria-label={t.playPause} aria-pressed={isPlayingBack}>
+          <button onMouseDown={preventMouseFocus} onClick={togglePlayback} disabled={isRecording || recordedEvents.length === 0} className={`p-1.5 rounded-full transition-all ${isPlayingBack ? 'bg-yellow-500 text-black' : 'text-green-500 hover:bg-green-900/50 disabled:opacity-30'}`} title={t.playPause} aria-label={t.playPause} aria-pressed={isPlayingBack}>
             {isPlayingBack ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
           </button>
-          <button onClick={stopAndReset} className="p-1.5 rounded-full text-gray-500 hover:text-white hover:bg-gray-700" title={t.stopReset} aria-label={t.stopReset}>
+          <button onMouseDown={preventMouseFocus} onClick={stopAndReset} className="p-1.5 rounded-full text-gray-500 hover:text-white hover:bg-gray-700" title={t.stopReset} aria-label={t.stopReset}>
             <RotateCcw className="w-3 h-3" />
           </button>
           <div className={`px-1 font-mono text-xs font-bold min-w-[50px] text-center transition-colors ${isRecording ? 'text-red-500' : isPlayingBack ? 'text-green-500' : elapsedTime > 0 ? 'text-yellow-500' : 'text-gray-500'}`}>{formatTime(elapsedTime)}</div>
@@ -227,6 +238,16 @@ const Toolbar: React.FC<ToolbarProps> = ({
               >
                 {PLAYBACK_SPEEDS.map(s => <option key={s} value={s}>{s}x</option>)}
               </select>
+              <button
+                onMouseDown={preventMouseFocus}
+                onClick={() => setIsWaitMode(!isWaitMode)}
+                className={`ml-1 p-1 rounded ${isWaitMode ? 'bg-purple-600 text-white' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'}`}
+                title={t.waitMode.toggle}
+                aria-label={t.waitMode.toggle}
+                aria-pressed={isWaitMode}
+              >
+                <Hourglass className="w-3 h-3" />
+              </button>
             </div>
           )}
         </div>

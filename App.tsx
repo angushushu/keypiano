@@ -5,10 +5,11 @@ import StaveVisualizer from './components/StaveVisualizer';
 import WaterfallVisualizer from './components/WaterfallVisualizer';
 import LandscapePrompt from './components/LandscapePrompt';
 import Toast from './components/Toast';
-import Toolbar from './components/Toolbar';
+import Toolbar, { preventMouseFocus } from './components/Toolbar';
 import StatusBar from './components/StatusBar';
 import SettingsPanel from './components/SettingsPanel';
 import InfoModal from './components/InfoModal';
+import TakesPanel from './components/TakesPanel';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { SynthProvider, useSynth } from './contexts/SynthContext';
 import { MetronomeProvider, useMetronome } from './contexts/MetronomeContext';
@@ -25,10 +26,22 @@ import { useAudioScheduler } from './hooks/useAudioScheduler';
 import { useKeyboardInput } from './hooks/useKeyboardInput';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { useRecordingState } from './hooks/useRecordingState';
+import { useTakeHistory } from './hooks/useTakeHistory';
 
 // ─── Inner App (consumes contexts) ──────────────────────────────
 
 const MAX_TRIGGER_NOTES = 500;
+const WAIT_MODE_STORAGE_KEY = 'keypiano.waitMode.v1';
+
+// Wait mode is on unless the player turned it off: it is what makes practice
+// mode usable for someone still learning a piece.
+const readWaitModePreference = () => {
+  try {
+    return localStorage.getItem(WAIT_MODE_STORAGE_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+};
 
 const isInteractiveTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) return false;
@@ -56,11 +69,15 @@ const AppInner: React.FC = () => {
   const [isToolbarOpen, setIsToolbarOpen] = useState(true);
   const [isPortraitMobile, setIsPortraitMobile] = useState(false);
   const [isPracticeMode, setIsPracticeMode] = useState(false);
+  const [isWaitMode, setIsWaitMode] = useState(readWaitModePreference);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
 
   // UI panels
   const [showInfo, setShowInfo] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showTakes, setShowTakes] = useState(false);
+  const takesButtonRef = useRef<HTMLButtonElement>(null);
+  const closeTakes = useCallback(() => setShowTakes(false), []);
   const settingsRef = useRef<HTMLDivElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const infoButtonRef = useRef<HTMLButtonElement>(null);
@@ -158,9 +175,20 @@ const AppInner: React.FC = () => {
   // Playback clear helper
   const clearPlaybackVisuals = useCallback(() => { setPlaybackKeys(new Set()); setPlaybackNotes(new Set()); setUpcomingKeys(new Set()); setUpcomingNotes(new Set()); }, []);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(WAIT_MODE_STORAGE_KEY, isWaitMode ? 'on' : 'off');
+    } catch {
+      // The preference still applies for this session.
+    }
+  }, [isWaitMode]);
+
   // Audio scheduler
-  const { isPlayingBack, togglePlayback, pausePlayback, changePlaybackSpeedAnchor } = useAudioScheduler({
-    recordingRef, isPracticeMode, playbackSpeed,
+  const {
+    isPlayingBack, togglePlayback, pausePlayback, changePlaybackSpeedAnchor,
+    waitingRemaining, registerUserNote, skipWaitingNotes,
+  } = useAudioScheduler({
+    recordingRef, isPracticeMode, isWaitMode, playbackSpeed,
     leftHandMap, rightHandMap, noteToKeyMap,
     setPlaybackKeys, setPlaybackNotes, setTriggerNotes, setPlaybackTempTranspose,
     setUpcomingKeys, setUpcomingNotes, setElapsedTime: (t: number) => recordingDispatch({ type: 'SET_ELAPSED', elapsed: t }), elapsedTime,
@@ -170,7 +198,22 @@ const AppInner: React.FC = () => {
   const { isSustainPedalDown, midiStatus, midiInputCount, requestMidiAccess } = useMidiDevice({
     currentInstrument, isRecording, recordingStartTime,
     addRecordingEvent, setTriggerNotes, setActiveMidiNotes,
+    onUserNote: registerUserNote,
   });
+
+  // Saved recordings and imports (IndexedDB)
+  const {
+    takes, currentTakeId, isStorageAvailable, saveImport, openTake, deleteTake,
+  } = useTakeHistory({
+    isRecording, recordingStartTime, recordingRef,
+    hasEvents: recordedEvents.length > 0,
+    loadEvents: events => loadMidiEvents(events, pausePlayback),
+  });
+  // Every take is saved as it is made, so replacing one only needs a warning
+  // when the browser refused to store it.
+  const confirmDiscardUnsavedTake = useCallback(() => (
+    isStorageAvailable !== false || recordedEvents.length === 0 || window.confirm(t.takes.confirmDiscard)
+  ), [isStorageAvailable, recordedEvents.length, t.takes.confirmDiscard]);
 
   // Computed visual notes
   const userActiveNotes = useMemo(() => {
@@ -208,12 +251,13 @@ const AppInner: React.FC = () => {
         });
       }
       setTriggerNotes(prev => [...prev, { note: finalNote, time: Date.now(), type: 'user' }]);
+      registerUserNote(finalNote);
       if (isRecording) {
         recordingRef.current.push({ time: Date.now() - recordingStartTime, type: 'on', note, code, transpose: totalTranspose, instrumentId: currentInstrument, velocity: vel });
       }
     }
     setActiveKeys(prev => { const n = new Set(prev); n.add(code); return n; });
-  }, [isRecording, recordingStartTime, currentInstrument, keyVelocity, currentKeyMap, getEffectiveTranspose, ensureAudioStarted, synthStateRef, setActiveKeys, setTriggerNotes]);
+  }, [isRecording, recordingStartTime, currentInstrument, keyVelocity, currentKeyMap, getEffectiveTranspose, ensureAudioStarted, synthStateRef, setActiveKeys, setTriggerNotes, registerUserNote]);
 
   const stopNoteByCode = useCallback((code: string) => {
     const activeParams = activeKeyParamsRef.current.get(code);
@@ -242,6 +286,7 @@ const AppInner: React.FC = () => {
       });
     }
     setTriggerNotes(prev => [...prev, { note: noteName, time: Date.now(), type: 'user' }]);
+    registerUserNote(noteName);
     setActiveMouseNotes(new Set(activeMouseNotesRef.current));
     if (isRecording) {
       recordingRef.current.push({
@@ -254,7 +299,7 @@ const AppInner: React.FC = () => {
         velocity,
       });
     }
-  }, [currentInstrument, ensureAudioStarted, isRecording, keyVelocity, recordingRef, recordingStartTime, setTriggerNotes]);
+  }, [currentInstrument, ensureAudioStarted, isRecording, keyVelocity, recordingRef, recordingStartTime, setTriggerNotes, registerUserNote]);
 
   const stopNoteByName = useCallback((noteName: string) => {
     if (!activeMouseNotesRef.current.has(noteName)) return;
@@ -301,8 +346,9 @@ const AppInner: React.FC = () => {
   }, [recordingStopAndReset, pausePlayback]);
 
   const toggleRecording = useCallback(() => {
+    if (!isRecording && !confirmDiscardUnsavedTake()) return;
     recordingToggle(clearPlaybackVisuals, pausePlayback);
-  }, [recordingToggle, clearPlaybackVisuals, pausePlayback]);
+  }, [isRecording, confirmDiscardUnsavedTake, recordingToggle, clearPlaybackVisuals, pausePlayback]);
 
   const changePlaybackSpeed = useCallback((newSpeed: number) => {
     changePlaybackSpeedAnchor(newSpeed);
@@ -399,14 +445,19 @@ const AppInner: React.FC = () => {
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
+    if (!confirmDiscardUnsavedTake()) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
     try {
       const events = parseMidiFile(await file.arrayBuffer());
       loadMidiEvents(events, pausePlayback);
+      void saveImport(events, file.name);
     } catch {
       setToast({ message: t.errors.midiParseFailed, variant: 'error' });
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
-  }, [isRecording, pausePlayback, loadMidiEvents, setToast, t.errors.importDuringRecording, t.errors.midiParseFailed]);
+  }, [isRecording, confirmDiscardUnsavedTake, pausePlayback, loadMidiEvents, saveImport, setToast, t.errors.importDuringRecording, t.errors.midiParseFailed]);
 
   // ─── RENDER ──────────────────────────────────────────────────
   if (isPortraitMobile) {
@@ -436,6 +487,8 @@ const AppInner: React.FC = () => {
           toggleRecording={toggleRecording} togglePlayback={togglePlayback}
           stopAndReset={stopAndReset} changePlaybackSpeed={changePlaybackSpeed}
           playbackSpeed={playbackSpeed} isPracticeMode={isPracticeMode} setIsPracticeMode={setIsPracticeMode}
+          isWaitMode={isWaitMode} setIsWaitMode={setIsWaitMode}
+          showTakes={showTakes} setShowTakes={setShowTakes} takesButtonRef={takesButtonRef}
           mainView={mainView} setMainView={setMainView} showPiano={showPiano} setShowPiano={setShowPiano}
           isSustainPedalDown={isSustainPedalDown} isLgUp={isLgUp}
           onImportMidi={() => fileInputRef.current?.click()} onExportMidi={handleExportMidi}
@@ -457,8 +510,28 @@ const AppInner: React.FC = () => {
         isSampleSourceLocked={isRecording || isPlayingBack}
       />
 
+      <TakesPanel
+        show={showTakes}
+        onClose={closeTakes}
+        toggleButtonRef={takesButtonRef}
+        takes={takes}
+        currentTakeId={currentTakeId}
+        isStorageAvailable={isStorageAvailable}
+        isLocked={isRecording}
+        onOpen={id => { if (confirmDiscardUnsavedTake()) void openTake(id); }}
+        onDelete={id => { void deleteTake(id); }}
+      />
+
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col relative overflow-hidden">
+        {waitingRemaining !== null && (
+          <div role="status" aria-live="polite" className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 rounded-full bg-purple-700/90 px-4 py-1.5 text-xs text-white shadow-lg backdrop-blur-md">
+            <span>{t.waitMode.waiting.replace('{count}', String(waitingRemaining))}</span>
+            <button type="button" onMouseDown={preventMouseFocus} onClick={skipWaitingNotes} className="rounded-full bg-white/15 px-2 py-0.5 hover:bg-white/30">
+              {t.waitMode.skip}
+            </button>
+          </div>
+        )}
         {mainView === 'stave' && <div className="flex-1 overflow-hidden relative bg-black/10"><StaveVisualizer triggerNotes={triggerNotes} theme={theme} /></div>}
         {mainView === 'keyboard' && (
           <div className={`flex-1 ${theme.keyboardBg} p-2 md:p-6 flex items-center justify-center overflow-hidden relative w-full transition-colors duration-300 min-h-0`}>

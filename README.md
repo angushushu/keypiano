@@ -58,11 +58,17 @@ Octave and transpose keys (`F1`–`F4`) are ignored while recording or playing b
 
 ## Recording and MIDI
 
+Every recording and imported MIDI file is saved in the browser (IndexedDB) as it is made, including a snapshot every few seconds while recording, so a refresh or closed tab loses at most those few seconds. The 20 most recent appear under **Recent recordings** (the history button next to MIDI export), and the latest one is reopened when the page loads. Starting a new recording never discards the previous one. If the browser refuses storage, for example in some private modes, the panel says so and KeyPiano asks before replacing an unsaved take.
+
 Recordings store note-on and note-off events, velocity, key mapping, and transposition. MIDI import and export preserve overlapping notes of the same pitch.
 
 MIDI files do not preserve KeyPiano-specific UI state, instrument sample names, sustain-pedal automation, or metronome settings. Imported MIDI is played with the currently selected KeyPiano instrument. KeyPiano records note events rather than microphone or rendered audio.
 
 Track name, channel and program number from an imported file are kept and written back out, so a multi-track file survives a round trip instead of collapsing onto one channel. KeyPiano's own recordings are single-track and export on channel 1.
+
+## Practice mode
+
+Load a recording or MIDI file, turn on practice mode (graduation-cap button), then press Play. Playback is silent and the keys to press are highlighted. With **wait mode** (hourglass button, on by default) playback stops at each note or chord until you have pressed all of its notes, on any input: computer keyboard, on-screen keys or a MIDI keyboard. Notes are matched by pitch, so transposition does not matter. **Skip** moves past notes you cannot reach. Turn wait mode off to play along at a fixed tempo, optionally slowed down with the speed control.
 
 ## Browser support
 
