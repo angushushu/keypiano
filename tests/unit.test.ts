@@ -3,13 +3,14 @@ import { Midi } from '@tonejs/midi';
 import { generateMidiFile, parseMidiFile } from '../services/midiIO';
 import { ALL_ROWS, getJianpu, getTransposedNote, midiNumberToNote, noteToMidi } from '../constants';
 import { RecordedEvent } from '../types';
-import { computeActiveEvents } from '../hooks/useAudioScheduler';
+import { assignFingering, assignKeys, computeActiveEvents } from '../hooks/useAudioScheduler';
 import { initialRecordingState, recordingReducer } from '../hooks/useRecordingState';
 import { TRANSLATIONS, Language } from '../i18n';
 import { SAMPLE_SOURCES, SampleLibrary, getSampleBaseUrl, isSampleSourceID } from '../services/sampleSources';
 import { trackEvent } from '../services/analytics';
 import { closeOpenNotes, sanitizeEvents, selectTakesToPrune, summarizeEvents } from '../services/takeStore';
 import { findNextGate, isGateSatisfied, isWithinGateWindow, remainingNotes, withHit } from '../services/waitGate';
+import { GUIDE_NOW, GUIDE_STEPS, approachLevel, guideFillOpacity, nowEntries, sameLevels, upcomingEntries } from '../services/practiceGuide';
 
 type TestCase = {
   name: string;
@@ -314,6 +315,67 @@ test('presses shortly before a gate count toward it, scaled by playback speed', 
   assert.equal(isWithinGateWindow(gate, 500, 1), false);
   assert.equal(isWithinGateWindow(gate, 850, 0.25), false);
   assert.equal(isWithinGateWindow(gate, 950, 0.25), true);
+});
+
+test('approachLevel brightens in steps as a note nears and never reaches "now"', () => {
+  assert.equal(approachLevel(0, 1500), 0, 'a note due now is not "approaching"');
+  assert.equal(approachLevel(1600, 1500), 0, 'outside the lookahead');
+  const far = approachLevel(1450, 1500);
+  const near = approachLevel(50, 1500);
+  assert.equal(far, 1 / GUIDE_STEPS);
+  assert.equal(near, (GUIDE_STEPS - 1) / GUIDE_STEPS);
+  assert.ok(near < GUIDE_NOW);
+});
+
+test('wait mode lights only the unpressed notes of the held chord', () => {
+  const events = [on(0, 'C3'), off(5000, 'C3'), on(1000, 'C4'), on(1020, 'E4'), off(1500, 'C4'), off(1500, 'E4')]
+    .sort((a, b) => a.time - b.time);
+  const gate = findNextGate(events, 500, true);
+  assert.ok(gate);
+  const sounding = [...computeActiveEvents(events, gate.timeMs).values()];
+  // C3 is still held from earlier, but needs no new press.
+  assert.deepEqual(nowEntries(sounding, events, withHit(gate, 60), true).map(entry => entry.evt.note), ['E4']);
+  assert.deepEqual(nowEntries(sounding, events, null, true), [], 'nothing is "now" while the clock runs');
+  assert.deepEqual(nowEntries(sounding, events, null, false).map(entry => entry.evt.note), ['C3', 'C4'],
+    'without wait mode every sounding note is lit');
+});
+
+test('upcomingEntries fades in future notes and skips chord notes already pressed', () => {
+  const events = [on(1000, 'C4'), on(1010, 'E4'), on(1400, 'G4'), on(3000, 'C5')];
+  const gate = findNextGate(events, 0);
+  assert.ok(gate);
+  const entries = upcomingEntries(events, 0, 1500, withHit(gate, 60), false);
+  assert.deepEqual(entries.map(entry => entry.evt.note), ['E4', 'G4'], 'C4 was pressed early; C5 is beyond the lookahead');
+  assert.ok(entries[0].level > entries[1].level, 'E4 (nearer) is brighter than G4');
+  assert.deepEqual(upcomingEntries(events, 1000, 1500, gate, true).map(entry => entry.evt.note), ['G4'],
+    'while waiting, the held chord is "now", not upcoming');
+});
+
+test('guideFillOpacity is visible for every approaching step and off otherwise', () => {
+  assert.equal(guideFillOpacity(0), 0);
+  assert.equal(guideFillOpacity(GUIDE_NOW), 0, '"now" uses the full playback style instead');
+  assert.ok(guideFillOpacity(1 / GUIDE_STEPS) >= 0.25);
+  assert.ok(guideFillOpacity(0.8) > guideFillOpacity(0.2));
+});
+
+test('sameLevels compares guide maps by content', () => {
+  assert.equal(sameLevels(new Map([['KeyQ', 0.4]]), new Map([['KeyQ', 0.4]])), true);
+  assert.equal(sameLevels(new Map([['KeyQ', 0.4]]), new Map([['KeyQ', 0.6]])), false);
+  assert.equal(sameLevels(new Map(), new Map([['KeyQ', 1]])), false);
+});
+
+test('assignKeys fingers each note like assignFingering', () => {
+  const leftHand = new Map([['C4', 'KeyQ'], ['D4', 'KeyW']]);
+  const rightHand = new Map([['C4', 'Numpad1']]);
+  const all = new Map([['C4', 'Numpad1'], ['D4', 'KeyW']]);
+  const events = [on(0, 'C4'), on(0, 'C#4'), on(0, 'D4', { code: 'KeyW' })];
+  const byNote = new Map(assignKeys(events, leftHand, rightHand, all).map(a => [a.note, [a.code, a.withShift]]));
+  assert.deepEqual(byNote.get('C#4'), ['KeyQ', true], 'a black key is its white neighbour plus Shift');
+  assert.deepEqual(byNote.get('C4'), ['Numpad1', false], 'right hand first');
+  assert.deepEqual(byNote.get('D4'), ['KeyW', false], 'a recorded key code is kept');
+  const { activeKeys, activeNotes } = assignFingering(new Map(events.map((evt, i) => [String(i), evt])), leftHand, rightHand, all);
+  assert.deepEqual([...activeNotes].sort(), ['C#4', 'C4', 'D4']);
+  assert.ok(activeKeys.has('ShiftLeft') && activeKeys.has('KeyQ') && activeKeys.has('KeyW'));
 });
 
 for (const { name, run } of tests) {

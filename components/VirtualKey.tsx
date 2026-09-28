@@ -3,6 +3,7 @@
 import React from 'react';
 import { Theme } from '../theme';
 import { getJianpu } from '../constants';
+import { guideFillOpacity } from '../services/practiceGuide';
 
 interface VirtualKeyProps {
   label: string;
@@ -14,8 +15,8 @@ interface VirtualKeyProps {
   width?: number; // 1u = 4 grid units
   height?: number; // 1 row = 1 grid row (unless spanning)
   isActive: boolean; // User interaction
-  isPlaybackActive?: boolean; // Playback/Practice mode interaction
-  isUpcoming?: boolean; // Pre-load interaction
+  /** Practice guide brightness: 0 off, rising as the note approaches, 1 = press now. */
+  guideLevel?: number;
   isModifier?: boolean;
   isDummy?: boolean;
   customLabel?: string;
@@ -37,8 +38,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   width = 1, 
   height = 1,
   isActive, 
-  isPlaybackActive,
-  isUpcoming,
+  guideLevel = 0,
   isDummy,
   customLabel,
   onMouseDown,
@@ -72,6 +72,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   const isFunctionKey = (customLabel || code.startsWith('F') || code === 'Escape') && !mappedNote; 
   const isCoffee = code === 'Coffee';
   const isLargeLabel = customLabel === '#L' || customLabel === 'bL';
+  const isGuideNow = !isDummy && guideLevel >= 1;
   
   // Color logic
   const mainTextColor = isActive ? theme.keyMainLabelActive : theme.keyMainLabel;
@@ -88,19 +89,19 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
       stateClass = theme.keyDummy;
   } else if (isCoffee) {
       stateClass = `bg-transparent border-none shadow-none transition-all ${isActive ? 'opacity-100 scale-95' : `opacity-60 hover:opacity-100`}`;
-  } else if (isPlaybackActive && isActive) {
+  } else if (isGuideNow && isActive) {
       // Hybrid state: Playback color (guide) but Active geometry (pressed)
       // We manually ensure it looks pressed while keeping the guide color
       stateClass = `${theme.keyPlayback} !translate-y-[2px] !shadow-none`;
-  } else if (isPlaybackActive) {
+  } else if (isGuideNow) {
       stateClass = theme.keyPlayback;
   } else if (isActive) {
       stateClass = theme.keyActive;
-  } else if (isUpcoming) {
-      stateClass = `${theme.keyBase} ${theme.keyUpcoming}`;
   } else {
       stateClass = theme.keyBase;
   }
+  // Approaching notes fade in with the same colour they end in.
+  const guideOpacity = !isDummy && !isActive ? guideFillOpacity(guideLevel) : 0;
   
   const handleMouseDown = (e?: React.MouseEvent<HTMLDivElement>) => {
     if (e) {
@@ -154,7 +155,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
         role={isDummy ? undefined : 'button'}
         aria-hidden={isDummy || undefined}
         aria-label={isDummy ? undefined : accessibleLabel}
-        aria-pressed={isDummy ? undefined : isActive || isPlaybackActive || false}
+        aria-pressed={isDummy ? undefined : isActive || isGuideNow}
         tabIndex={isDummy ? -1 : isTabStop ? 0 : -1}
         title={description}
         onMouseDown={handleMouseDown}
@@ -183,6 +184,11 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
         }}
         onKeyUp={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleMouseUp(); } }}
     >
+      <span
+        aria-hidden="true"
+        className={`absolute inset-0 rounded-[4px] pointer-events-none transition-opacity duration-150 ${theme.keyGuide}`}
+        style={{ opacity: guideOpacity }}
+      />
       {!isFunctionKey && !isCoffee && !isDummy && (
           <span className={`absolute top-[2px] left-[3px] text-[10px] font-sans font-bold leading-none hidden sm:block ${labelTextColor}`}>
             {displayLabel}
@@ -190,13 +196,13 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
       )}
       
       {(isFunctionKey || isCoffee) && !isDummy && (
-          <span className={`${functionTextClass} ${!isCoffee && !isLargeLabel ? `${theme.keyFunctionText} font-bold font-sans` : ''} ${!isCoffee ? 'hidden sm:block' : ''}`}>
+          <span className={`relative ${functionTextClass} ${!isCoffee && !isLargeLabel ? `${theme.keyFunctionText} font-bold font-sans` : ''} ${!isCoffee ? 'hidden sm:block' : ''}`}>
               {displayLabel}
           </span>
       )}
 
       {jianpu && (
-        <div className={`flex flex-col items-center justify-center leading-none ${jianpuTextColor}`}>
+        <div className={`relative flex flex-col items-center justify-center leading-none ${jianpuTextColor}`}>
           <div className="mb-[1px] sm:mb-[2px]">
              {jianpu.diff > 0 ? renderDots(jianpu.diff) : <div className="h-[2px] sm:h-[4px]"></div>}
           </div>
@@ -212,7 +218,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
       )}
       
       {code === 'Space' && (
-          <span className={`text-[8px] sm:text-[11px] font-sans mt-1 sm:mt-2 tracking-widest uppercase opacity-50 hidden xs:block ${labelTextColor}`}>
+          <span className={`relative text-[8px] sm:text-[11px] font-sans mt-1 sm:mt-2 tracking-widest uppercase opacity-50 hidden xs:block ${labelTextColor}`}>
             KeyPiano
           </span>
       )}

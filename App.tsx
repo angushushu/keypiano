@@ -61,6 +61,8 @@ const isTextEntryTarget = (target: HTMLElement): boolean => (
   || (target instanceof HTMLInputElement && !NON_TEXT_INPUT_TYPES.has(target.type))
 );
 
+const EMPTY_GUIDE = new Map<string, number>();
+
 const AppInner: React.FC = () => {
   const { theme, t, isZenMode, setIsZenMode } = useSettings();
   const {
@@ -113,8 +115,8 @@ const AppInner: React.FC = () => {
   }, []);
   const [playbackKeys, setPlaybackKeys] = useState<Set<string>>(new Set());
   const [playbackNotes, setPlaybackNotes] = useState<Set<string>>(new Set());
-  const [upcomingKeys, setUpcomingKeys] = useState<Set<string>>(new Set());
-  const [upcomingNotes, setUpcomingNotes] = useState<Set<string>>(new Set());
+  const [guideKeys, setGuideKeys] = useState<Map<string, number>>(EMPTY_GUIDE);
+  const [guideNotes, setGuideNotes] = useState<Map<string, number>>(EMPTY_GUIDE);
   const [playbackTempTranspose, setPlaybackTempTranspose] = useState(0);
   const [activeMouseNotes, setActiveMouseNotes] = useState<Set<string>>(new Set());
   const [activeMidiNotes, setActiveMidiNotes] = useState<Set<string>>(new Set());
@@ -181,7 +183,7 @@ const AppInner: React.FC = () => {
   }, [currentKeyMap]);
 
   // Playback clear helper
-  const clearPlaybackVisuals = useCallback(() => { setPlaybackKeys(new Set()); setPlaybackNotes(new Set()); setUpcomingKeys(new Set()); setUpcomingNotes(new Set()); }, []);
+  const clearPlaybackVisuals = useCallback(() => { setPlaybackKeys(new Set()); setPlaybackNotes(new Set()); setGuideKeys(EMPTY_GUIDE); setGuideNotes(EMPTY_GUIDE); }, []);
 
   useEffect(() => {
     try {
@@ -199,7 +201,7 @@ const AppInner: React.FC = () => {
     recordingRef, isPracticeMode, isWaitMode, playbackSpeed,
     leftHandMap, rightHandMap, noteToKeyMap,
     setPlaybackKeys, setPlaybackNotes, setTriggerNotes, setPlaybackTempTranspose,
-    setUpcomingKeys, setUpcomingNotes, setElapsedTime: (t: number) => recordingDispatch({ type: 'SET_ELAPSED', elapsed: t }), elapsedTime,
+    setGuideKeys, setGuideNotes, setElapsedTime: (t: number) => recordingDispatch({ type: 'SET_ELAPSED', elapsed: t }), elapsedTime,
   });
 
   // MIDI device hook
@@ -583,7 +585,7 @@ const AppInner: React.FC = () => {
                         description={t.keyDescriptions[k.code] ?? k.description}
                         playNoteTemplate={t.playNote}
                         isActive={activeKeys.has(k.code) || (!isPracticeMode && playbackKeys.has(k.code)) || (k.code === 'ShiftLeft' && (tempTranspose !== 0 ? tempTranspose : (isPlayingBack ? playbackTempTranspose : 0)) === 1) || (k.code === 'ControlLeft' && (tempTranspose !== 0 ? tempTranspose : (isPlayingBack ? playbackTempTranspose : 0)) === -1)}
-                        isPlaybackActive={isPracticeMode && playbackKeys.has(k.code)} isUpcoming={isPracticeMode && upcomingKeys.has(k.code)}
+                        guideLevel={isPracticeMode ? guideKeys.get(k.code) ?? 0 : 0}
                         onMouseDown={playNoteByCode} onMouseUp={stopNoteByCode} theme={theme}
                         isTabStop={focusedVirtualKeyCode === k.code}
                         onMoveFocus={moveVirtualKeyFocus}
@@ -607,7 +609,7 @@ const AppInner: React.FC = () => {
 
       {!isZenMode && showPiano && (
         <div className={`${theme.pianoBg} p-1 flex flex-col gap-1 shadow-[0_-5px_15px_rgba(0,0,0,0.5)] z-20 shrink-0 transition-all`} style={{ height: `${pianoHeight}px` }}>
-          <PianoKeyboard activeNotes={pianoVisualNotes} playbackNotes={isPracticeMode ? playbackNotes : new Set()} upcomingNotes={isPracticeMode ? upcomingNotes : new Set()} onPlayNote={playNoteByName} onStopNote={stopNoteByName} theme={theme} ariaLabel={t.pianoKeyboard} />
+          <PianoKeyboard activeNotes={pianoVisualNotes} guideNotes={isPracticeMode ? guideNotes : EMPTY_GUIDE} onPlayNote={playNoteByName} onStopNote={stopNoteByName} theme={theme} ariaLabel={t.pianoKeyboard} />
         </div>
       )}
 

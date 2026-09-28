@@ -8,6 +8,14 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+### Changed
+
+- Practice mode's key guide is one colour that fills in as a note
+  approaches, instead of a yellow outline for the next 1.5 seconds plus a
+  separate "now" colour. In wait mode only the notes still to press are
+  fully lit, so the count in the prompt matches the lit keys; notes held
+  over from earlier chords are no longer highlighted.
+
 ### Fixed
 
 - After clicking any toolbar control (Import MIDI, view buttons, the speed

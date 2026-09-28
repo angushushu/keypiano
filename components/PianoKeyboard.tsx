@@ -2,11 +2,14 @@
 import React, { useRef, useMemo, useState } from 'react';
 import { Theme } from '../theme';
 import { NOTE_NAMES } from '../constants';
+import { guideFillOpacity } from '../services/practiceGuide';
+
+const EMPTY_GUIDE = new Map<string, number>();
 
 interface PianoKeyboardProps {
     activeNotes: Set<string>;
-    playbackNotes?: Set<string>;
-    upcomingNotes?: Set<string>;
+    /** Practice guide brightness per note: rising as it approaches, 1 = press now. */
+    guideNotes?: Map<string, number>;
     onPlayNote: (note: string) => void;
     onStopNote: (note: string) => void;
     theme?: Theme;
@@ -15,8 +18,7 @@ interface PianoKeyboardProps {
 
 const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
     activeNotes,
-    playbackNotes = new Set(),
-    upcomingNotes = new Set(),
+    guideNotes = EMPTY_GUIDE,
     onPlayNote,
     onStopNote,
     theme,
@@ -27,11 +29,11 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         pianoWhiteKey: 'bg-gradient-to-b from-white to-gray-200',
         pianoWhiteKeyActive: 'bg-yellow-400',
         pianoWhiteKeyPlayback: 'bg-green-300',
-        pianoWhiteKeyUpcoming: 'bg-green-100',
+        pianoWhiteKeyGuide: 'bg-green-300',
         pianoBlackKey: 'bg-gradient-to-b from-gray-800 to-black',
         pianoBlackKeyActive: 'bg-yellow-600',
         pianoBlackKeyPlayback: 'bg-green-600',
-        pianoBlackKeyUpcoming: 'bg-green-800'
+        pianoBlackKeyGuide: 'bg-green-600'
     };
 
     const { allKeys, whiteKeys, midiToWhiteIdx } = useMemo(() => {
@@ -165,13 +167,13 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         >
             {whiteKeys.map((k) => {
                  const isUserActive = activeNotes.has(k.noteId);
-                 const isPlaybackActive = playbackNotes.has(k.noteId);
-                 const isUpcoming = upcomingNotes.has(k.noteId);
+                 const guideLevel = guideNotes.get(k.noteId) ?? 0;
+                 const isPlaybackActive = guideLevel >= 1;
 
                  let keyClass = t.pianoWhiteKey;
                  if (isPlaybackActive) keyClass = t.pianoWhiteKeyPlayback;
                  else if (isUserActive) keyClass = t.pianoWhiteKeyActive;
-                 else if (isUpcoming) keyClass = `${t.pianoWhiteKey} ${t.pianoWhiteKeyUpcoming}`;
+                 const guideOpacity = !isUserActive ? guideFillOpacity(guideLevel) : 0;
                  const extraClass = (isUserActive && isPlaybackActive) ? '!brightness-110' : '';
                  return (
                      <div
@@ -198,6 +200,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
                          onMouseLeave={(e) => handleNoteAction(k.noteId, 'leave', e)}
                          onTouchStart={(e) => handleTouchStart(e, k.noteId)}
                      >
+                        <span aria-hidden="true" className={`absolute inset-0 rounded-b-[4px] pointer-events-none transition-opacity duration-150 ${t.pianoWhiteKeyGuide}`} style={{ opacity: guideOpacity }} />
                         {k.note === 'C' && (
                             <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-gray-500 font-bold hidden sm:block">C{k.octave}</span>
                         )}
@@ -216,13 +219,13 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
                      const leftPct = (prevWhiteIndex + 1) * unitWidthPct - (blackWidthPct / 2);
 
                      const isUserActive = activeNotes.has(k.noteId);
-                     const isPlaybackActive = playbackNotes.has(k.noteId);
-                     const isUpcoming = upcomingNotes.has(k.noteId);
+                     const guideLevel = guideNotes.get(k.noteId) ?? 0;
+                     const isPlaybackActive = guideLevel >= 1;
 
                      let keyClass = t.pianoBlackKey;
                      if (isPlaybackActive) keyClass = t.pianoBlackKeyPlayback;
                      else if (isUserActive) keyClass = t.pianoBlackKeyActive;
-                     else if (isUpcoming) keyClass = `${t.pianoBlackKey} ${t.pianoBlackKeyUpcoming}`;
+                     const guideOpacity = !isUserActive ? guideFillOpacity(guideLevel) : 0;
 
                      const extraClass = (isUserActive && isPlaybackActive) ? '!brightness-125' : '';
 
@@ -254,7 +257,9 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
                              onMouseEnter={(e) => handleNoteAction(k.noteId, 'enter', e)}
                              onMouseLeave={(e) => handleNoteAction(k.noteId, 'leave', e)}
                              onTouchStart={(e) => { e.stopPropagation(); handleTouchStart(e, k.noteId); }}
-                         ></div>
+                         >
+                             <span aria-hidden="true" className={`absolute inset-0 rounded-b-[3px] pointer-events-none transition-opacity duration-150 ${t.pianoBlackKeyGuide}`} style={{ opacity: guideOpacity }} />
+                         </div>
                      );
                  })}
             </div>
