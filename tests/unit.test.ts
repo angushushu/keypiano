@@ -7,6 +7,7 @@ import { assignFingering, computeActiveEvents, keysForEvent } from '../hooks/use
 import { assignPiece, suggestOctave } from '../services/autoFingering';
 import { KEYMAP_PRESETS } from '../constants';
 import { THEMES, ThemePalette, themeCssVariables } from '../theme';
+import { INSTRUMENTS, INSTRUMENT_LEVEL_DB, dbToGain, softClipCurve, velocityToGain } from '../services/audioEngine';
 import { initialRecordingState, recordingReducer } from '../hooks/useRecordingState';
 import { TRANSLATIONS, Language } from '../i18n';
 import { SAMPLE_SOURCES, SampleLibrary, getSampleBaseUrl, isSampleSourceID } from '../services/sampleSources';
@@ -495,6 +496,30 @@ test('themeCssVariables exposes every palette value as a --kp- variable', () => 
   assert.equal(vars['--kp-key-bg'], THEMES.night.palette.keyBg);
   assert.equal(vars['--kp-played-deep'], THEMES.night.palette.playedDeep);
   assert.equal(Object.keys(vars).length, Object.keys(THEMES.night.palette).length);
+});
+
+test('velocity maps linearly to gain, with the keyboard default at unity', () => {
+  assert.equal(velocityToGain(100), 1);
+  assert.ok(Math.abs(20 * Math.log10(velocityToGain(64)) - -3.9) < 0.1, 'velocity 64 is about -4 dB');
+  assert.equal(velocityToGain(0), 0);
+  assert.equal(velocityToGain(200), velocityToGain(127), 'velocities are clamped to MIDI range');
+});
+
+test('every instrument has a level trim and dbToGain converts decibels', () => {
+  for (const { id } of INSTRUMENTS) assert.equal(typeof INSTRUMENT_LEVEL_DB[id], 'number', id);
+  assert.equal(dbToGain(0), 1);
+  assert.ok(Math.abs(dbToGain(6) - 1.995) < 0.01);
+  assert.ok(Math.abs(dbToGain(-20) - 0.1) < 1e-9);
+});
+
+test('the soft clipper is transparent at normal levels and never exceeds full scale', () => {
+  const size = 4001;
+  const curve = softClipCurve(size);
+  const at = (x: number) => curve[Math.round(((x + 1) / 2) * (size - 1))];
+  assert.ok(Math.abs(at(0.5) - 0.5) < 1e-3, 'below the knee the signal passes unchanged');
+  assert.ok(Math.abs(at(-0.7) + 0.7) < 1e-3);
+  assert.ok(Math.max(...curve.map(Math.abs)) < 1, 'output stays below full scale');
+  for (let i = 1; i < size; i++) assert.ok(curve[i] >= curve[i - 1], 'the curve is monotonic');
 });
 
 for (const { name, run } of tests) {

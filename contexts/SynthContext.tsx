@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { audioEngine, SustainLevel, InstrumentID, INSTRUMENTS } from '../services/audioEngine';
+import { audioEngine, SustainLevel, InstrumentID, INSTRUMENTS, MAX_MASTER_VOLUME } from '../services/audioEngine';
 import { DEFAULT_SAMPLE_SOURCE, isSampleSourceID, SampleSourceID } from '../services/sampleSources';
 import { trackEvent } from '../services/analytics';
 import { useSettings } from './SettingsContext';
@@ -56,7 +56,7 @@ const readSynthPreferences = () => {
       instrument: isInstrumentID(parsed.instrument) ? parsed.instrument : fallback.instrument,
       sampleSource: isSampleSourceID(parsed.sampleSource) ? parsed.sampleSource : fallback.sampleSource,
       masterVolume: typeof parsed.masterVolume === 'number'
-        ? Math.max(0, Math.min(1, parsed.masterVolume))
+        ? Math.max(0, Math.min(MAX_MASTER_VOLUME, parsed.masterVolume))
         : fallback.masterVolume,
       keyVelocity: typeof parsed.keyVelocity === 'number'
         ? Math.max(0, Math.min(127, parsed.keyVelocity))

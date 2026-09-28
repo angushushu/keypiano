@@ -19,6 +19,60 @@ export const INSTRUMENTS = [
 
 export type InstrumentID = typeof INSTRUMENTS[number]['id'];
 
+// ─── Levels ─────────────────────────────────────────────────────
+// The sample sets are recorded at very different levels. Measured on C2–C6
+// (median RMS over each note's first 0.5 s), Salamander sits near -21 dBFS
+// and the others near -30 to -38 dBFS. These gains bring every instrument
+// to Salamander's loudness without pushing its peaks above Salamander's
+// (-8 dBFS). Strings attack slowly, so their early RMS understates them.
+export const INSTRUMENT_LEVEL_DB: Record<InstrumentID, number> = {
+    salamander: 0,
+    hq_piano: 12,
+    electric_grand_piano: 12,
+    drawbar_organ: 14,
+    acoustic_guitar_steel: 13,
+    string_ensemble_1: 9,
+    lead_1_square: 8,
+    synth_drum: 12,
+};
+
+/** Fixed gain ahead of the output limiter: single notes play louder, chords are caught by the limiter. */
+export const OUTPUT_BOOST_DB = 6;
+/** The volume control goes past 100% because the limiter keeps the extra from clipping. */
+export const MAX_MASTER_VOLUME = 1.5;
+/** Velocity that plays at unity gain; the computer keyboard's default. */
+const REFERENCE_VELOCITY = 100;
+
+export const dbToGain = (db: number) => Math.pow(10, db / 20);
+
+/** Below this level the soft clipper passes audio unchanged (about -1.9 dBFS). */
+const SOFT_CLIP_KNEE = 0.8;
+
+/**
+ * Transfer curve for the final WaveShaper: linear up to SOFT_CLIP_KNEE, then a
+ * tanh shoulder that approaches but never exceeds full scale. The limiter
+ * ahead of it cannot stop every transient (12 loud notes at 150% volume still
+ * overshot by 1.4 dB); this rounds those off instead of clipping digitally.
+ */
+export function softClipCurve(size = 4096): Float32Array<ArrayBuffer> {
+    const curve = new Float32Array(size);
+    for (let i = 0; i < size; i++) {
+        const x = (i / (size - 1)) * 2 - 1;
+        const magnitude = Math.abs(x);
+        const shaped = magnitude <= SOFT_CLIP_KNEE
+            ? magnitude
+            : SOFT_CLIP_KNEE + (1 - SOFT_CLIP_KNEE) * Math.tanh((magnitude - SOFT_CLIP_KNEE) / (1 - SOFT_CLIP_KNEE));
+        curve[i] = Math.sign(x) * shaped;
+    }
+    return curve;
+}
+
+/**
+ * Linear velocity response: 100 plays at unity, 64 about -4 dB, 32 about
+ * -10 dB. The old 1.5-power curve left medium MIDI velocities 6 dB down.
+ */
+export const velocityToGain = (velocity: number) => Math.max(0, Math.min(127, velocity)) / REFERENCE_VELOCITY;
+
 export type MetronomeSound = 'beep' | 'click' | 'woodblock';
 // Display labels live in i18n.ts (`t.metronome`), keyed by these ids.
 export const METRONOME_SOUNDS: { id: MetronomeSound }[] = [
@@ -68,6 +122,7 @@ class AudioEngine {
     private ctx: AudioContext | null = null;
     private masterGain: GainNode | null = null;
     private compressor: DynamicsCompressorNode | null = null;
+    private softClipper: WaveShaperNode | null = null;
     private buffers: Map<string, AudioBuffer> = new Map();
     private activeSources: Map<string, ActiveSource[]> = new Map();
     private liveSources = new Set<ActiveSource>();
@@ -113,16 +168,23 @@ class AudioEngine {
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
         this.ctx = new AudioContextClass();
 
+        // Used as a limiter: it only acts on peaks, which the output boost
+        // makes more frequent when chords stack up.
         this.compressor = this.ctx.createDynamicsCompressor();
-        this.compressor.threshold.value = -3;
-        this.compressor.knee.value = 5;
-        this.compressor.ratio.value = 4;
-        this.compressor.attack.value = 0.003;
-        this.compressor.release.value = 0.25;
-        this.compressor.connect(this.ctx.destination);
+        this.compressor.threshold.value = -6;
+        this.compressor.knee.value = 3;
+        this.compressor.ratio.value = 12;
+        this.compressor.attack.value = 0.002;
+        this.compressor.release.value = 0.2;
+
+        this.softClipper = this.ctx.createWaveShaper();
+        this.softClipper.curve = softClipCurve();
+        this.softClipper.oversample = '2x';
+        this.compressor.connect(this.softClipper);
+        this.softClipper.connect(this.ctx.destination);
 
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = this.volume;
+        this.masterGain.gain.value = this.outputGain();
         this.masterGain.connect(this.compressor);
     }
 
@@ -159,6 +221,7 @@ class AudioEngine {
         try {
             this.masterGain?.disconnect();
             this.compressor?.disconnect();
+            this.softClipper?.disconnect();
         } catch {
             // Nodes may already be detached; there is nothing left to release.
         }
@@ -167,6 +230,7 @@ class AudioEngine {
         this.ctx = null;
         this.masterGain = null;
         this.compressor = null;
+        this.softClipper = null;
 
         if (ctx && ctx.state !== 'closed') {
             // Rejections here are not actionable: the page is going away.
@@ -411,12 +475,16 @@ class AudioEngine {
         }
     }
 
+    private outputGain() {
+        return this.volume * dbToGain(OUTPUT_BOOST_DB);
+    }
+
     public setVolume(val: number) {
-        this.volume = val; 
+        this.volume = Math.max(0, Math.min(MAX_MASTER_VOLUME, val));
         if (this.masterGain && this.ctx) {
             this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
             this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, this.ctx.currentTime);
-            this.masterGain.gain.linearRampToValueAtTime(this.volume, this.ctx.currentTime + 0.1);
+            this.masterGain.gain.linearRampToValueAtTime(this.outputGain(), this.ctx.currentTime + 0.1);
         }
     }
 
@@ -481,11 +549,7 @@ class AudioEngine {
         source.playbackRate.value = Math.pow(2, match.distance / 12);
 
         const gain = this.ctx.createGain();
-        const normalizedVel = Math.max(0, Math.min(127, velocity)) / 127;
-        // Make the velocity curve less aggressive for quiet play, and boost the overall signal slightly
-        const gainValue = Math.pow(normalizedVel, 1.5) * 1.5; 
-        
-        gain.gain.value = gainValue;
+        gain.gain.value = velocityToGain(velocity) * dbToGain(INSTRUMENT_LEVEL_DB[this.currentInstrument]);
 
         source.connect(gain);
         gain.connect(this.masterGain);

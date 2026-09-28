@@ -8,6 +8,18 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+### Changed
+
+- Louder, even playback. The sample sets were recorded at very different
+  levels: measured over C2–C6, Salamander sits near -21 dBFS RMS and the
+  other instruments near -30 to -38 dBFS, so most instruments were about
+  12 dB quieter. Each instrument now has a measured level trim, the output
+  gets +6 dB ahead of a limiter and a transparent soft clipper, and
+  velocity maps linearly to gain (100 at unity; 64 was -5.8 dB, now -3.9).
+  A single note is about 8 dB louder on Salamander and 20 dB on the other
+  instruments, and 12 loud notes at full volume no longer clip.
+- The volume control goes up to 150%.
+
 ## [1.4.0] - 2026-09-27
 
 ### Added

@@ -8,7 +8,7 @@ import {
 import { useSettings } from '../contexts/SettingsContext';
 import { useSynth } from '../contexts/SynthContext';
 import { useMetronome } from '../contexts/MetronomeContext';
-import { INSTRUMENTS, InstrumentID, MetronomeSound } from '../services/audioEngine';
+import { INSTRUMENTS, InstrumentID, MAX_MASTER_VOLUME, MetronomeSound } from '../services/audioEngine';
 import { KeyPianoLogo } from './KeyPianoLogo';
 
 const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5];
@@ -134,7 +134,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <Volume2 className={`w-4 h-4 ${theme.mutedText} ${masterVolume > 0 ? '' : 'opacity-50'}`} />
           <input
             aria-label={t.masterVolume}
-            type="range" min="0" max="1" step="0.01" value={masterVolume}
+            type="range" min="0" max={MAX_MASTER_VOLUME} step="0.01" value={masterVolume}
             onChange={(e) => setMasterVolume(parseFloat(e.target.value))}
             className="w-16 md:w-24 cursor-pointer accent-[color:var(--kp-played)]"
             title={t.masterVolume}
