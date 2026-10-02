@@ -77,7 +77,9 @@ Track name, channel and program number from an imported file are kept and writte
 
 ## Arrange view
 
-Choose **Arrange** in the view controls to open the horizontal piano roll. With
+Choose **Arrange** in the view controls to open the horizontal piano roll. The
+bottom virtual piano starts hidden; its toolbar toggle can show it, and this
+choice is independent of other views. With
 **Auto record** enabled (the default), the first computer-keyboard, on-screen
 piano or MIDI note starts recording immediately. Held notes grow into bars;
 new performances append at the end of the current piece. Use **Stop recording**
@@ -85,9 +87,14 @@ or `F10` to finish, then edit. Recording and playback lock editing.
 
 - Click an empty cell to add a note. Drag a note to change its onset and pitch;
   drag its right edge to change its length.
-- Select a note and press Delete/Backspace or the trash button to remove it.
-  Arrow keys move it; Shift+Left/Right changes its length. Escape cancels a drag
-  or clears the selection.
+- Right-drag a region to select every note bar touching it. Shift+right-drag
+  adds to the selection, Shift+click toggles individual notes, and Ctrl/Cmd+A
+  selects all. Selected notes move together when you drag any one of them;
+  dragging a right edge changes all selected lengths by the same amount.
+- Press Delete/Backspace or the trash button to remove selected notes.
+  Arrow keys move the group; Shift+Left/Right changes its lengths. Group edits
+  preserve relative timing and pitch, and stop at the timeline/pitch boundaries.
+  Escape cancels a drag or clears the selection. Each group edit is one undo step.
 - Undo/Redo buttons and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Ctrl+Y retain up to 100
   edits in the current editing session. Importing, recording or refreshing
   starts a new undo history.

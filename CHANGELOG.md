@@ -8,6 +8,18 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-01
+
+### Added
+
+- Right-drag region selection in Arrange, with additive selection, grouped
+  movement/resizing/deletion, select-all and one-step undo for each group edit.
+
+### Changed
+
+- The bottom virtual piano defaults to hidden in Arrange; its visibility choice
+  is independent of the keyboard, stave and waterfall views.
+
 ## [1.5.0] - 2026-10-01
 
 ### Changed

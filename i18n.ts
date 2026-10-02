@@ -27,7 +27,7 @@ interface TranslationSet {
   arrange: {
     title: string; auto: string; ready: string; recording: string; editing: string;
     hint: string; empty: string; snap: string; free: string; undo: string; redo: string;
-    delete: string; stop: string; zoom: string; grid: string; note: string; resize: string;
+    delete: string; stop: string; zoom: string; grid: string; note: string; resize: string; selected: string;
   };
   toggleStave: string;
   toggleKeyboard: string;
@@ -173,11 +173,11 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     arrange: {
       title: 'Arrange', auto: 'Auto record', ready: 'Play to record · appends to the end',
       recording: 'Recording · stop to edit', editing: 'Editor',
-      hint: 'Click to add · drag to move · drag the right edge to resize · Delete to remove · Ctrl+Z to undo',
+      hint: 'Click to add · right-drag to select · Shift+click to toggle selection · drag to move · right edge to resize · Delete to remove · Ctrl+Z to undo',
       empty: 'Play your keyboard or click the grid to add your first note.',
-      snap: 'Snap', free: 'Free', undo: 'Undo', redo: 'Redo', delete: 'Delete note',
+      snap: 'Snap', free: 'Free', undo: 'Undo', redo: 'Redo', delete: 'Delete selected notes',
       stop: 'Stop recording', zoom: 'Zoom', grid: 'Piano roll',
-      note: '{note} · {start}s · {duration}s', resize: 'Resize note',
+      note: '{note} · {start}s · {duration}s', resize: 'Resize selected notes', selected: '{count} notes selected',
     },
     loading: 'Loading Sounds...',
     aboutTitle: 'About KeyPiano',
@@ -360,11 +360,11 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     arrange: {
       title: '编曲', auto: '自动录入', ready: '开始弹奏即可录入 · 接在已有音符末尾',
       recording: '正在录入 · 停止后可编辑', editing: '编辑模式',
-      hint: '点空白处添加 · 拖动音符移动 · 拖右边缘改长度 · Delete 删除 · Ctrl+Z 撤销',
+      hint: '点空白处添加 · 右键拖拽框选 · Shift+点击增减选择 · 拖动移动 · 拖右边缘改长度 · Delete 删除 · Ctrl+Z 撤销',
       empty: '弹奏键盘，或点击网格，添加第一个音符。',
-      snap: '吸附', free: '自由', undo: '撤销', redo: '重做', delete: '删除音符',
+      snap: '吸附', free: '自由', undo: '撤销', redo: '重做', delete: '删除所选音符',
       stop: '停止录入', zoom: '缩放', grid: '钢琴卷帘',
-      note: '{note} · {start} 秒 · 时长 {duration} 秒', resize: '调整音符长度',
+      note: '{note} · {start} 秒 · 时长 {duration} 秒', resize: '调整所选音符长度', selected: '已选择 {count} 个音符',
     },
     loading: '加载音色中...',
     aboutTitle: '关于 KeyPiano',

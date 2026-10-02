@@ -62,3 +62,35 @@ export function moveRollNote(note: RollNote, deltaTime: number, deltaPitch: numb
 export function resizeRollNote(note: RollNote, end: number, step: number): RollNote {
     return { ...note, end: Math.max(note.start + Math.max(10, step), snapTime(end, step)) };
 }
+
+export interface RollPoint { time: number; pitch: number }
+
+/** Any bar touching the region is selected, regardless of drag direction. */
+export function selectRollNotes(notes: readonly RollNote[], from: RollPoint, to: RollPoint): Set<string> {
+    const start = Math.min(from.time, to.time);
+    const end = Math.max(from.time, to.time);
+    const low = Math.min(from.pitch, to.pitch);
+    const high = Math.max(from.pitch, to.pitch);
+    return new Set(notes.filter(note => note.pitch >= low && note.pitch <= high && note.start <= end && note.end >= start).map(note => note.id));
+}
+
+/** Snap the anchor, then apply one bounded offset to preserve the whole phrase. */
+export function moveRollNotes(notes: readonly RollNote[], ids: ReadonlySet<string>, anchorId: string, deltaTime: number, deltaPitch: number, step: number): RollNote[] {
+    const selected = notes.filter(note => ids.has(note.id));
+    const anchor = selected.find(note => note.id === anchorId);
+    if (!anchor) return [...notes];
+    const time = deltaTime === 0 ? 0 : Math.max(-Math.min(...selected.map(note => note.start)), snapTime(anchor.start + deltaTime, step) - anchor.start);
+    const pitch = Math.max(-Math.min(...selected.map(note => note.pitch)), Math.min(127 - Math.max(...selected.map(note => note.pitch)), Math.round(deltaPitch)));
+    return notes.map(note => ids.has(note.id) ? { ...note, start: note.start + time, end: note.end + time, pitch: note.pitch + pitch } : note);
+}
+
+/** Keep length differences and constrain shortening by the shortest selected note. */
+export function resizeRollNotes(notes: readonly RollNote[], ids: ReadonlySet<string>, anchorId: string, deltaTime: number, step: number): RollNote[] {
+    const selected = notes.filter(note => ids.has(note.id));
+    const anchor = selected.find(note => note.id === anchorId);
+    if (!anchor) return [...notes];
+    const shortest = Math.min(...selected.map(note => note.end - note.start));
+    const minimum = Math.min(shortest, Math.max(10, step));
+    const delta = Math.max(minimum - shortest, snapTime(anchor.end + deltaTime, step) - anchor.end);
+    return notes.map(note => ids.has(note.id) ? { ...note, end: note.end + delta } : note);
+}

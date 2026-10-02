@@ -96,7 +96,13 @@ const AppInner: React.FC = () => {
   // View state
   const [mainView, setMainView] = useState<MainView>(() => new URLSearchParams(window.location.search).get('view') === 'arrange' ? 'arrange' : 'keyboard');
   const [autoCapture, setAutoCapture] = useState(true);
-  const [showPiano, setShowPiano] = useState(true);
+  const [showStandardPiano, setShowStandardPiano] = useState(true);
+  const [showArrangePiano, setShowArrangePiano] = useState(false);
+  const showPiano = mainView === 'arrange' ? showArrangePiano : showStandardPiano;
+  const setShowPiano = useCallback((visible: boolean) => {
+    if (mainView === 'arrange') setShowArrangePiano(visible);
+    else setShowStandardPiano(visible);
+  }, [mainView]);
   const [pianoHeight, setPianoHeight] = useState(180);
   const [isToolbarOpen, setIsToolbarOpen] = useState(true);
   const [isPortraitMobile, setIsPortraitMobile] = useState(false);
@@ -148,7 +154,7 @@ const AppInner: React.FC = () => {
   // Responsive
   const isNarrowViewport = useMediaQuery('(max-width: 1023px)');
   const isLgUp = useMediaQuery('(min-width: 1024px)');
-  useEffect(() => { setShowPiano(!isNarrowViewport); setPianoHeight(isNarrowViewport ? 120 : 180); setIsToolbarOpen(!isNarrowViewport); }, [isNarrowViewport]);
+  useEffect(() => { setShowStandardPiano(!isNarrowViewport); setPianoHeight(isNarrowViewport ? 120 : 180); setIsToolbarOpen(!isNarrowViewport); }, [isNarrowViewport]);
 
   useEffect(() => {
     const checkLayout = () => { const w = window.innerWidth; setIsPortraitMobile(window.innerHeight > w && w < 1024); };
@@ -258,7 +264,6 @@ const AppInner: React.FC = () => {
     if (view === 'arrange') {
       if (isPlayingBack) pausePlayback();
       setIsPracticeMode(false);
-      setShowPiano(true);
     }
     setMainView(view);
   }, [mainView, sessionRef, stopRecording, pausePlayback, isPlayingBack]);
