@@ -3,13 +3,14 @@ import {
   Volume2, Keyboard, Activity, Music,
   Circle, Square, Play, Pause, Timer, Info, ChevronDown, ChevronUp, RotateCcw,
   Download, FileUp, Settings, ScrollText, Piano, GraduationCap, Gauge, ArrowDownToLine, Maximize,
-  History, Hourglass
+  History, Hourglass, ListMusic
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { useSynth } from '../contexts/SynthContext';
 import { useMetronome } from '../contexts/MetronomeContext';
 import { INSTRUMENTS, InstrumentID, MAX_MASTER_VOLUME, MetronomeSound } from '../services/audioEngine';
 import { KeyPianoLogo } from './KeyPianoLogo';
+import type { MainView } from '../types';
 
 const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5];
 
@@ -38,6 +39,8 @@ interface ToolbarProps {
   elapsedTime: number;
   toggleRecording: () => void;
   togglePlayback: () => void;
+  isPracticePreparing: boolean;
+  practicePreparationLabel: string;
   stopAndReset: () => void;
   changePlaybackSpeed: (speed: number) => void;
   playbackSpeed: number;
@@ -48,8 +51,8 @@ interface ToolbarProps {
   showTakes: boolean;
   setShowTakes: (v: boolean) => void;
   takesButtonRef: React.RefObject<HTMLButtonElement>;
-  mainView: string;
-  setMainView: (v: 'stave' | 'keyboard' | 'waterfall') => void;
+  mainView: MainView;
+  setMainView: (v: MainView) => void;
   showPiano: boolean;
   setShowPiano: (v: boolean) => void;
   isSustainPedalDown: boolean;
@@ -66,7 +69,7 @@ interface ToolbarProps {
 const Toolbar: React.FC<ToolbarProps> = ({
   isToolbarOpen, setIsToolbarOpen,
   isRecording, isPlayingBack, recordedEvents, elapsedTime,
-  toggleRecording, togglePlayback, stopAndReset,
+  toggleRecording, togglePlayback, stopAndReset, isPracticePreparing, practicePreparationLabel,
   changePlaybackSpeed, playbackSpeed,
   isPracticeMode, setIsPracticeMode,
   isWaitMode, setIsWaitMode,
@@ -186,7 +189,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <button onMouseDown={preventMouseFocus} onClick={toggleRecording} className={`p-1.5 rounded-full transition-all ${isRecording ? 'bg-[color:var(--kp-rec)] text-white animate-pulse' : 'text-[color:var(--kp-rec)] hover:bg-[color:var(--kp-hover-bg)]'}`} title={t.record} aria-label={t.record} aria-pressed={isRecording}>
             {isRecording ? <Square className="w-3 h-3 fill-current" /> : <Circle className="w-3 h-3 fill-current" />}
           </button>
-          <button onMouseDown={preventMouseFocus} onClick={togglePlayback} disabled={isRecording || recordedEvents.length === 0} className={`p-1.5 rounded-full transition-all disabled:opacity-30 ${controlClass(isPlayingBack)}`} title={t.playPause} aria-label={t.playPause} aria-pressed={isPlayingBack}>
+          <button onMouseDown={preventMouseFocus} onClick={togglePlayback} disabled={isRecording || recordedEvents.length === 0 || (isPracticePreparing && !isPlayingBack)} className={`p-1.5 rounded-full transition-all disabled:opacity-30 ${controlClass(isPlayingBack)}`} title={isPracticePreparing ? practicePreparationLabel : t.playPause} aria-label={t.playPause} aria-pressed={isPlayingBack}>
             {isPlayingBack ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
           </button>
           <button onMouseDown={preventMouseFocus} onClick={stopAndReset} className={`p-1.5 rounded-full ${theme.controlOff}`} title={t.stopReset} aria-label={t.stopReset}>
@@ -204,6 +207,16 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <button onClick={() => setMainView('keyboard')} className={`p-1.5 rounded ${controlClass(mainView === 'keyboard')}`} title={t.toggleKeyboard} aria-label={t.toggleKeyboard} aria-pressed={mainView === 'keyboard'}>
             <Keyboard className="w-3.5 h-3.5" />
           </button>
+          {isLgUp && (
+            <button onClick={() => setMainView('arrange')} className={`p-1.5 rounded flex items-center gap-1 ${controlClass(mainView === 'arrange')}`} title={t.arrange.title} aria-label={t.arrange.title} aria-pressed={mainView === 'arrange'}>
+              <ListMusic className="w-3.5 h-3.5" /><span className="text-xs">{t.arrange.title}</span>
+            </button>
+          )}
+          {!isLgUp && (
+            <button onClick={() => setMainView('arrange')} className={`p-1.5 rounded ${controlClass(mainView === 'arrange')}`} title={t.arrange.title} aria-label={t.arrange.title} aria-pressed={mainView === 'arrange'}>
+              <ListMusic className="w-3.5 h-3.5" />
+            </button>
+          )}
           {isLgUp && (
             <button onClick={() => setMainView('waterfall')} className={`p-1.5 rounded ${controlClass(mainView === 'waterfall')}`} title={t.waterfall} aria-label={t.waterfall} aria-pressed={mainView === 'waterfall'}>
               <ArrowDownToLine className="w-3.5 h-3.5" />

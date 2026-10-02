@@ -1,5 +1,7 @@
 import { useReducer, useRef, useEffect, useCallback } from 'react';
 import { RecordedEvent } from '../types';
+import { closeOpenNotes, createTakeId } from '../services/takeStore';
+import { noteQueueKey } from '../services/waitGate';
 
 // ─── State ──────────────────────────────────────────────────────
 
@@ -69,6 +71,10 @@ export function recordingReducer(state: RecordingState, action: RecordingAction)
 export function useRecordingState() {
   const [state, dispatch] = useReducer(recordingReducer, initialRecordingState);
   const recordingRef = useRef<RecordedEvent[]>([]);
+  // A first note can start recording and be captured in the same event turn,
+  // before React has rendered the new state (including a simultaneous chord).
+  const sessionRef = useRef({ active: false, startTime: 0 });
+  const heldNoteIds = useRef(new Map<string, string[]>());
 
   // Timer effect
   useEffect(() => {
@@ -86,18 +92,51 @@ export function useRecordingState() {
     recordingRef.current.push(evt);
   }, []);
 
+  const captureEvent = useCallback((evt: Omit<RecordedEvent, 'time'>) => {
+    if (!sessionRef.current.active) return;
+    const key = noteQueueKey({ ...evt, time: 0 });
+    const queue = heldNoteIds.current.get(key) ?? [];
+    const noteId = evt.type === 'on' ? createTakeId() : queue.shift();
+    if (!noteId) return; // A key held before recording has no recorded onset.
+    if (evt.type === 'on') queue.push(noteId);
+    if (queue.length) heldNoteIds.current.set(key, queue);
+    else heldNoteIds.current.delete(key);
+    recordingRef.current.push({ ...evt, noteId, time: Math.max(0, Date.now() - sessionRef.current.startTime) });
+  }, []);
+
+  const startAppendRecording = useCallback((offset: number, clearPlaybackVisuals: () => void, pausePlayback: () => void) => {
+    if (sessionRef.current.active) return;
+    pausePlayback();
+    recordingRef.current = [...recordingRef.current];
+    heldNoteIds.current.clear();
+    const startTime = Date.now() - offset;
+    sessionRef.current = { active: true, startTime };
+    clearPlaybackVisuals();
+    dispatch({ type: 'START_RECORDING', startTime });
+  }, []);
+
   const startRecording = useCallback((clearPlaybackVisuals: () => void, pausePlayback: () => void) => {
     pausePlayback();
     recordingRef.current = [];
+    heldNoteIds.current.clear();
     clearPlaybackVisuals();
-    dispatch({ type: 'START_RECORDING', startTime: Date.now() });
+    const startTime = Date.now();
+    sessionRef.current = { active: true, startTime };
+    dispatch({ type: 'START_RECORDING', startTime });
   }, []);
 
   const stopRecording = useCallback(() => {
+    if (sessionRef.current.active) {
+      recordingRef.current = closeOpenNotes([...recordingRef.current], Date.now() - sessionRef.current.startTime);
+      sessionRef.current.active = false;
+      heldNoteIds.current.clear();
+    }
     dispatch({ type: 'STOP_RECORDING', events: [...recordingRef.current] });
+    dispatch({ type: 'SET_ELAPSED', elapsed: recordingRef.current.reduce((end, event) => Math.max(end, event.time), 0) });
   }, []);
 
   const stopAndReset = useCallback((pausePlayback: () => void) => {
+    stopRecording();
     if (recordingRef.current.length > 0) {
       dispatch({ type: 'STOP_RECORDING', events: [...recordingRef.current] });
     } else {
@@ -105,10 +144,10 @@ export function useRecordingState() {
     }
     pausePlayback();
     dispatch({ type: 'RESET_TIMER' });
-  }, [state.recordedEvents]);
+  }, [state.recordedEvents, stopRecording]);
 
   const toggleRecording = useCallback((clearPlaybackVisuals: () => void, pausePlayback: () => void) => {
-    if (state.isRecording) {
+    if (sessionRef.current.active) {
       stopRecording();
     } else {
       startRecording(clearPlaybackVisuals, pausePlayback);
@@ -117,6 +156,8 @@ export function useRecordingState() {
 
   const loadMidiEvents = useCallback((events: RecordedEvent[], pausePlayback: () => void) => {
     pausePlayback();
+    sessionRef.current.active = false;
+    heldNoteIds.current.clear();
     recordingRef.current = events;
     dispatch({ type: 'SET_EVENTS', events });
   }, []);
@@ -125,6 +166,9 @@ export function useRecordingState() {
     ...state,
     recordingRef,
     addRecordingEvent,
+    captureEvent,
+    startAppendRecording,
+    sessionRef,
     startRecording,
     stopRecording,
     stopAndReset,

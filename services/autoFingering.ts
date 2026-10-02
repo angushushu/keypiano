@@ -1,49 +1,20 @@
 import { ALL_ROWS, IMMUNE_TO_MODIFIERS, getTransposedNote, noteToMidi } from '../constants';
 import { RecordedEvent } from '../types';
-import { CHORD_WINDOW_MS } from './waitGate';
+import { groupNoteChords } from './waitGate';
+import { searchFingering, DEFAULT_FINGERING_OPTIONS, type Hand, type FingeringOptions, type KeyAssignment, type FingeringPlan, type KeyPosition, type KeySlot } from './fingeringPlanner';
+export { DEFAULT_FINGERING_OPTIONS, noteEndTimes } from './fingeringPlanner';
+export type { Finger, Hand, Modifier, KeyAssignment, FingeringOptions, FingeringPlan, FingeringIssue } from './fingeringPlanner';
 
 // Chooses computer keys for notes that carry no recorded key (imported MIDI),
-// following how a keyboard piano is played: the left hand on the two lower
-// letter rows, the right hand on the Q row and the number row, black keys as
-// Shift (+1) or Ctrl (-1) on a neighbouring key, and each hand staying near
-// where it already is. The numpad and arrow keys are only used when the
-// player has them.
-
-export type Hand = 'left' | 'right';
-/** Semitones added by the held modifier: Shift +1, Ctrl -1. */
-export type Modifier = 0 | 1 | -1;
-
-export interface KeyAssignment {
-    code: string;
-    modifier: Modifier;
-    hand: Hand;
-}
-
-export interface FingeringOptions {
-    /** The player has a numpad and arrow keys to use. */
-    useNumpad: boolean;
-}
+// using a full-size keyboard by default: the right hand plays unmodified
+// notes on the numpad/navigation keys, leaving the left hand on the main
+// block for Shift (+1) or Ctrl (-1). Without a numpad, hands split between
+// the lower and upper main rows. Each hand stays near where it already is.
 
 /** Below this pitch (C4) a note belongs to the left hand when nothing else decides. */
 export const HAND_SPLIT_MIDI = 60;
 /** A single-note line only moves to the left hand once it drops below F3. */
 const MELODY_LEFT_BELOW_MIDI = 53;
-
-const RIGHT_HAND_ROWS = new Set([1, 2]);
-const LEFT_HAND_ROWS = new Set([3, 4]);
-
-// Costs for choosing between keys that produce the same pitch.
-const ROW_MOVE_COST = 1.5;
-const COLUMN_MOVE_COST = 0.25;
-const OTHER_HAND_AREA_COST = 8;
-const NUMPAD_AREA_COST = 6;
-const MODIFIER_COST = 1.5;
-// Sharps are read as "raise" (Shift), flats as "lower" (Ctrl), as in jianpu.
-const SPELLING_COST = 1;
-const UNREACHABLE_COST = 100;
-
-interface KeyPosition { row: number; x: number }
-interface KeySlot extends KeyPosition { code: string; midi: number; isImmune: boolean }
 
 /** Physical position of every key in the on-screen layout, in key units. */
 const KEY_POSITIONS: Map<string, KeyPosition> = (() => {
@@ -52,7 +23,7 @@ const KEY_POSITIONS: Map<string, KeyPosition> = (() => {
         let x = 0;
         for (const key of row) {
             const width = key.width ?? 1;
-            if (!key.isDummy) positions.set(key.code, { row: rowIndex, x: x + width / 2 });
+            if (!key.isDummy) positions.set(key.code, { row: rowIndex + ((key.height ?? 1) - 1) / 2, x: x + width / 2 });
             x += width;
         }
     });
@@ -64,6 +35,7 @@ const HAND_ANCHORS: Record<Hand, KeyPosition> = {
     right: KEY_POSITIONS.get('KeyY') ?? { row: 2, x: 7 },
     left: KEY_POSITIONS.get('KeyF') ?? { row: 3, x: 5 },
 };
+const NUMPAD_ANCHOR = KEY_POSITIONS.get('Numpad5') ?? { row: 3, x: 22 };
 
 /** Every mapped key with the pitch it sounds at the given transposition. */
 export function buildKeySlots(keymap: Record<string, string>, offset: number): KeySlot[] {
@@ -80,13 +52,7 @@ const eventMidi = (evt: RecordedEvent) => noteToMidi(getTransposedNote(evt.note,
 
 /** Note-ons starting within CHORD_WINDOW_MS of each other, in time order. */
 export function groupChords(ons: RecordedEvent[]): RecordedEvent[][] {
-    const chords: RecordedEvent[][] = [];
-    for (const evt of [...ons].sort((a, b) => a.time - b.time)) {
-        const current = chords[chords.length - 1];
-        if (current && evt.time - current[0].time <= CHORD_WINDOW_MS) current.push(evt);
-        else chords.push([evt]);
-    }
-    return chords;
+    return groupNoteChords(ons);
 }
 
 const trackKey = (evt: RecordedEvent) => `${evt.channel ?? ''}|${evt.trackName ?? ''}`;
@@ -136,87 +102,23 @@ export function assignHands(ons: RecordedEvent[]): Map<RecordedEvent, Hand> {
     return hands;
 }
 
-const soundingMidi = (slot: KeySlot, modifier: Modifier) => (slot.isImmune ? slot.midi : slot.midi + modifier);
-
-function spellingCost(evt: RecordedEvent, modifier: Modifier): number {
-    if (modifier === 0) return 0;
-    const isFlat = /^[A-G]b/.test(evt.note);
-    const isSharp = evt.note.includes('#');
-    return (modifier === 1 && isSharp) || (modifier === -1 && isFlat) ? 0 : SPELLING_COST;
-}
-
-function slotCost(slot: KeySlot, hand: Hand, from: KeyPosition): number {
-    const handRows = hand === 'right' ? RIGHT_HAND_ROWS : LEFT_HAND_ROWS;
-    const areaCost = slot.isImmune ? NUMPAD_AREA_COST : handRows.has(slot.row) ? 0 : OTHER_HAND_AREA_COST;
-    return areaCost + Math.abs(slot.row - from.row) * ROW_MOVE_COST + Math.abs(slot.x - from.x) * COLUMN_MOVE_COST;
-}
-
-function bestSlot(slots: KeySlot[], midi: number, hand: Hand, modifier: Modifier, from: KeyPosition) {
-    let best: { slot: KeySlot; cost: number } | null = null;
-    for (const slot of slots) {
-        if (soundingMidi(slot, modifier) !== midi) continue;
-        const cost = slotCost(slot, hand, from);
-        if (!best || cost < best.cost) best = { slot, cost };
-    }
-    return best;
-}
-
-/**
- * Keys for every note-on without a recorded key. A modifier is held for the
- * whole chord (it transposes every non-numpad key pressed with it), so each
- * chord uses the single modifier state that reaches its notes best.
- */
-export function assignPiece(
-    events: RecordedEvent[],
-    keymap: Record<string, string>,
-    offset: number,
-    options: FingeringOptions,
-): Map<RecordedEvent, KeyAssignment> {
+/** Plan the whole piece, retaining alternative postures across chord boundaries. */
+export function planPiece(
+    events: RecordedEvent[], keymap: Record<string, string>, offset: number,
+    options: FingeringOptions = DEFAULT_FINGERING_OPTIONS,
+): FingeringPlan {
     const slots = buildKeySlots(keymap, offset).filter(slot => options.useNumpad || !slot.isImmune);
     const ons = events.filter(evt => evt.type === 'on' && !evt.code);
-    const hands = assignHands(ons);
-    const positions: Record<Hand, KeyPosition> = { ...HAND_ANCHORS };
-    const assignments = new Map<RecordedEvent, KeyAssignment>();
+    const anchors = { ...HAND_ANCHORS, right: options.useNumpad ? NUMPAD_ANCHOR : HAND_ANCHORS.right };
+    return searchFingering(events, groupChords(ons), slots, assignHands(ons), options, anchors, KEY_POSITIONS);
+}
 
-    for (const chord of groupChords(ons)) {
-        let best: { total: number; modifier: Modifier; picks: (KeySlot | null)[] } | null = null;
-        for (const modifier of [0, 1, -1] as Modifier[]) {
-            let total = modifier === 0 ? 0 : MODIFIER_COST;
-            const picks = chord.map(evt => {
-                const hand = hands.get(evt) ?? 'right';
-                const pick = bestSlot(slots, eventMidi(evt), hand, modifier, positions[hand]);
-                total += pick ? pick.cost + spellingCost(evt, modifier) : UNREACHABLE_COST;
-                return pick?.slot ?? null;
-            });
-            if (!best || total < best.total) best = { total, modifier, picks };
-        }
-        if (!best) continue;
-        const { picks, modifier } = best;
-
-        chord.forEach((evt, index) => {
-            const hand = hands.get(evt) ?? 'right';
-            let slot = picks[index];
-            let noteModifier = modifier;
-            if (!slot) {
-                // No key reaches this note with the chord's modifier (e.g. F# in
-                // D-F#-A without a numpad). Give it its own modifier: the player
-                // rolls the chord, pressing it with Shift or Ctrl just before or after.
-                const fallback = ([1, -1, 0] as Modifier[])
-                    .filter(candidate => candidate !== modifier)
-                    .flatMap(candidate => {
-                        const pick = bestSlot(slots, eventMidi(evt), hand, candidate, positions[hand]);
-                        return pick ? [{ candidate, slot: pick.slot, cost: pick.cost + spellingCost(evt, candidate) }] : [];
-                    })
-                    .sort((a, b) => a.cost - b.cost)[0];
-                if (!fallback) return;
-                slot = fallback.slot;
-                noteModifier = fallback.candidate;
-            }
-            assignments.set(evt, { code: slot.code, modifier: slot.isImmune ? 0 : noteModifier, hand });
-            positions[hand] = { row: slot.row, x: slot.x };
-        });
-    }
-    return assignments;
+/** Compatibility wrapper for playback callers that only need key assignments. */
+export function assignPiece(
+    events: RecordedEvent[], keymap: Record<string, string>, offset: number,
+    options: FingeringOptions = DEFAULT_FINGERING_OPTIONS,
+): Map<RecordedEvent, KeyAssignment> {
+    return planPiece(events, keymap, offset, options).assignments;
 }
 
 /** Note-ons without a recorded key that no key can play at this transposition. */
@@ -224,11 +126,16 @@ export function countUnreachable(
     events: RecordedEvent[],
     keymap: Record<string, string>,
     offset: number,
-    options: FingeringOptions,
+    options: FingeringOptions = DEFAULT_FINGERING_OPTIONS,
 ): number {
     const ons = events.filter(evt => evt.type === 'on' && !evt.code);
     if (ons.length === 0) return 0;
-    return ons.length - assignPiece(events, keymap, offset, options).size;
+    // Range advice concerns pitch availability, not fingering difficulty.
+    // Avoid running the sequence search seven times just to compare octaves.
+    const playable = new Set(buildKeySlots(keymap, offset)
+        .filter(slot => options.useNumpad || !slot.isImmune)
+        .flatMap(slot => slot.isImmune ? [slot.midi] : [slot.midi - 1, slot.midi, slot.midi + 1]));
+    return ons.filter(evt => !playable.has(eventMidi(evt))).length;
 }
 
 export const OCTAVE_RANGE = { min: -3, max: 3 };
@@ -242,7 +149,7 @@ export function suggestOctave(
     keymap: Record<string, string>,
     transposeBase: number,
     currentOctave: number,
-    options: FingeringOptions,
+    options: FingeringOptions = DEFAULT_FINGERING_OPTIONS,
 ): { octave: number; unreachableNow: number; unreachableThen: number } | null {
     const unreachableNow = countUnreachable(events, keymap, transposeBase + currentOctave * 12, options);
     if (unreachableNow === 0) return null;

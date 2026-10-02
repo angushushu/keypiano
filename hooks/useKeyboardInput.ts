@@ -1,6 +1,13 @@
 import { useState, useCallback, useEffect, useRef, type SetStateAction } from 'react';
 import { IMMUNE_TO_MODIFIERS, KEYMAP_PRESETS, KeymapID } from '../constants';
 
+/** Only #L/bL change pitches. Right Shift is a mapped performance key. */
+export const heldTranspose = (keys: ReadonlySet<string>, latest?: string): number => {
+    if (latest === 'ControlLeft' && keys.has(latest)) return -1;
+    if (keys.has('ShiftLeft')) return 1;
+    return keys.has('ControlLeft') ? -1 : 0;
+};
+
 export function useKeyboardInput(initialKeymapId: KeymapID = 'freepiano') {
     const [activeKeys, setActiveKeysState] = useState<Set<string>>(new Set());
     const [keymapId, setKeymapId] = useState<KeymapID>(() => {
@@ -56,46 +63,38 @@ export function useKeyboardInput(initialKeymapId: KeymapID = 'freepiano') {
         }
 
         // --- Modifier State Update ---
-        if (code === 'ShiftLeft' || code === 'ShiftRight') {
-             setTempTranspose(1);
-             tempTransposeRef.current = 1;
-        } else if (code === 'ControlLeft' || code === 'ControlRight') {
-             setTempTranspose(-1);
-             tempTransposeRef.current = -1;
+        const next = new Set(activeKeysRef.current);
+        next.add(code);
+        if (code === 'ShiftLeft' || code === 'ControlLeft') {
+             const modifier = heldTranspose(next, code);
+             setTempTranspose(modifier);
+             tempTransposeRef.current = modifier;
         }
         
-        setActiveKeys(prev => {
-            const next = new Set(prev);
-            next.add(code);
-            activeKeysRef.current = next;
-            return next;
-        });
+        activeKeysRef.current = next;
+        setActiveKeys(next);
     }, []);
 
     const handleKeyUp = useCallback((e: globalThis.KeyboardEvent) => {
         const code = e.code;
         
         // --- Modifier State Update ---
-        if (code === 'ShiftLeft' || code === 'ShiftRight') {
-            setTempTranspose(0);
-            tempTransposeRef.current = 0;
+        const next = new Set(activeKeysRef.current);
+        next.delete(code);
+        if (code === 'ShiftLeft' || code === 'ControlLeft') {
+            const modifier = heldTranspose(next);
+            setTempTranspose(modifier);
+            tempTransposeRef.current = modifier;
             if (code === 'ShiftLeft') {
                 lastShiftLeftReleaseTime.current = Date.now();
             }
-        } else if (code === 'ControlLeft' || code === 'ControlRight') {
-            setTempTranspose(0);
-            tempTransposeRef.current = 0;
         }
 
         // Failsafe: if OS sticky keys issue occurred, we can't trust the event
         // This is handled in `getEffectiveTranspose` logic
         
-        setActiveKeys(prev => {
-            const next = new Set(prev);
-            next.delete(code);
-            activeKeysRef.current = next;
-            return next;
-        });
+        activeKeysRef.current = next;
+        setActiveKeys(next);
     }, []);
 
     const getEffectiveTranspose = useCallback((code: string | undefined) => {

@@ -3,10 +3,11 @@ import { audioEngine } from '../services/audioEngine';
 import { RecordedEvent, TriggerNote } from '../types';
 import { getTransposedNote, noteToMidi } from '../constants';
 import {
-    WaitGate, findNextGate, isGateSatisfied, isWithinGateWindow, remainingNotes, withHit,
+    WaitGate, findNextGate, isGateSatisfied, isWithinGateWindow, noteQueueKey, remainingNotes, withHit,
 } from '../services/waitGate';
 import {
-    GUIDE_LOOKAHEAD_MS, GuideEntry, nowEntries, raiseLevel, sameLevels, upcomingEntries,
+    GUIDE_LOOKAHEAD_MS, EMPTY_INSTRUCTION, buildPracticeGuide, holdingEntries, nextPracticePitches, nowEntries, sameInstruction, sameLevels, upcomingEntries,
+    type GuideInstruction,
 } from '../services/practiceGuide';
 import type { KeyAssignment } from '../services/autoFingering';
 import type { TickWorkerMessage } from '../workers/tickWorker';
@@ -26,6 +27,7 @@ interface UseAudioSchedulerProps {
     /** Practice guide brightness per key code / note, 1 meaning "press now". */
     setGuideKeys: (levels: Map<string, number>) => void;
     setGuideNotes: (levels: Map<string, number>) => void;
+    setGuideInstruction: (instruction: GuideInstruction) => void;
     setElapsedTime: (time: number) => void;
     elapsedTime: number;
 }
@@ -39,7 +41,7 @@ export function computeActiveEvents(events: RecordedEvent[], upToMs: number): Ma
 
     for (const evt of events) {
         if (evt.time > upToMs) break;
-        const baseKey = evt.code || `${evt.note}_${evt.transpose}`;
+        const baseKey = noteQueueKey(evt);
         const queue = queues.get(baseKey) ?? [];
 
         if (evt.type === 'on') {
@@ -118,6 +120,7 @@ export function useAudioScheduler({
     setPlaybackTempTranspose,
     setGuideKeys,
     setGuideNotes,
+    setGuideInstruction,
     setElapsedTime,
     elapsedTime
 }: UseAudioSchedulerProps) {
@@ -142,6 +145,7 @@ export function useAudioScheduler({
     const playbackNotesRef = useRef<Set<string>>(new Set());
     const guideKeysRef = useRef<Map<string, number>>(new Map());
     const guideNotesRef = useRef<Map<string, number>>(new Map());
+    const guideInstructionRef = useRef(EMPTY_INSTRUCTION);
     const playbackTempTransposeRef = useRef(0);
     const lastStaveIndexRef = useRef<number>(0);
     const workerRef = useRef<Worker | null>(null);
@@ -212,7 +216,9 @@ export function useAudioScheduler({
         const gate = gateRef.current;
         if (!gate || !isPlayingRef.current || !isWaitActive()) return;
         if (!isWaitingRef.current && !isWithinGateWindow(gate, readTrackTimeMs(), playbackSpeedRef.current)) return;
-        const next = withHit(gate, noteToMidi(note));
+        const midi = noteToMidi(note);
+        if (!nextPracticePitches(recordingRef.current, gate, keyAssignmentsRef.current).includes(midi)) return;
+        const next = withHit(gate, midi);
         if (next === gate) return;
         gateRef.current = next;
         if (!isWaitingRef.current) return;
@@ -227,7 +233,7 @@ export function useAudioScheduler({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const updateGuide = (keys: Map<string, number>, notes: Map<string, number>) => {
+    const updateGuide = (keys: Map<string, number>, notes: Map<string, number>, instruction = EMPTY_INSTRUCTION) => {
         if (!sameLevels(keys, guideKeysRef.current)) {
             guideKeysRef.current = keys;
             setGuideKeys(keys);
@@ -236,18 +242,10 @@ export function useAudioScheduler({
             guideNotesRef.current = notes;
             setGuideNotes(notes);
         }
-    };
-
-    // Keys come from the per-piece assignment, so a note keeps the same key
-    // from the moment it starts fading in until it is played.
-    const buildGuide = (entries: GuideEntry[]) => {
-        const keys = new Map<string, number>();
-        const notes = new Map<string, number>();
-        for (const { evt, level } of entries) {
-            raiseLevel(notes, getTransposedNote(evt.note, evt.transpose), level);
-            keysForEvent(evt, keyAssignmentsRef.current).forEach(code => raiseLevel(keys, code, level));
+        if (!sameInstruction(instruction, guideInstructionRef.current)) {
+            guideInstructionRef.current = instruction;
+            setGuideInstruction(instruction);
         }
-        return { keys, notes };
     };
 
     const pausePlayback = () => {
@@ -285,8 +283,10 @@ export function useAudioScheduler({
             audioCursorRef.current = idx;
             lastStaveIndexRef.current = idx;
             if (!isPracticeModeRef.current) {
-                computeActiveEvents(recordingRef.current, elapsedTime).forEach((evt) => {
-                    audioEngine.playNote(evt.note, evt.transpose, evt.velocity);
+                // Events at the cursor are still scheduled below. Resume only
+                // earlier notes, otherwise a note at time zero starts twice.
+                computeActiveEvents(recordingRef.current.slice(0, idx), elapsedTime).forEach((evt) => {
+                    audioEngine.playNote(evt.note, evt.transpose, evt.velocity, 0, evt.noteId);
                 });
             }
         }
@@ -362,13 +362,13 @@ export function useAudioScheduler({
             if (evt.type === 'on') {
                  if (absolutePlayTime > currentCtxTime - 0.05) {
                      if (!isPracticeModeRef.current) {
-                         audioEngine.playNote(evt.note, evt.transpose, evt.velocity, absolutePlayTime);
+                         audioEngine.playNote(evt.note, evt.transpose, evt.velocity, absolutePlayTime, evt.noteId);
                      }
                  }
             } else if (!isPracticeModeRef.current) {
                  // Practice mode never starts playback notes, and stopping one
                  // here would cut off the player's own note of the same pitch.
-                 audioEngine.stopNote(evt.note, evt.transpose, absolutePlayTime);
+                 audioEngine.stopNote(evt.note, evt.transpose, absolutePlayTime, evt.noteId);
             }
             nextIdx++;
         }
@@ -399,11 +399,7 @@ export function useAudioScheduler({
         const { activeKeys, activeNotes } = assignFingering(activeNotesMap, keyAssignmentsRef.current);
 
         // 3. Detect temp transpose
-        const modT = detectTempTranspose(activeKeys);
-        if (modT !== playbackTempTransposeRef.current) {
-            setPlaybackTempTranspose(modT);
-            playbackTempTransposeRef.current = modT;
-        }
+        let modT = isPracticeModeRef.current ? 0 : detectTempTranspose(activeKeys);
 
         // 4. Update playback visuals (only if changed)
         let changed = false;
@@ -427,13 +423,19 @@ export function useAudioScheduler({
             const waitActive = isWaitActive();
             const gate = waitActive ? gateRef.current : null;
             const waitingGate = isWaitingRef.current ? gate : null;
-            const { keys, notes } = buildGuide([
+            const { keys, notes, instruction } = buildPracticeGuide([
                 ...nowEntries([...activeNotesMap.values()], events, waitingGate, waitActive),
+                ...(waitActive ? holdingEntries([...activeNotesMap.values()], gate, keyAssignmentsRef.current) : []),
                 ...upcomingEntries(events, currentTrackTimeMs, GUIDE_LOOKAHEAD_MS * playbackSpeedRef.current, gate, isWaitingRef.current),
-            ]);
-            updateGuide(keys, notes);
+            ], keyAssignmentsRef.current, waitActive);
+            updateGuide(keys, notes, instruction);
+            modT = detectTempTranspose(new Set([...keys].filter(([, level]) => level >= 1).map(([code]) => code)));
         } else {
             updateGuide(new Map(), new Map());
+        }
+        if (modT !== playbackTempTransposeRef.current) {
+            setPlaybackTempTranspose(modT);
+            playbackTempTransposeRef.current = modT;
         }
 
         // 6. Emit stave trigger notes

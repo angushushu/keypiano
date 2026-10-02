@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { Midi } from '@tonejs/midi';
 import { generateMidiFile, parseMidiFile } from '../services/midiIO';
-import { ALL_ROWS, getJianpu, getTransposedNote, midiNumberToNote, noteToMidi } from '../constants';
+import { ALL_ROWS, IMMUNE_TO_MODIFIERS, getJianpu, getTransposedNote, midiNumberToNote, noteToMidi } from '../constants';
 import { RecordedEvent } from '../types';
 import { assignFingering, computeActiveEvents, keysForEvent } from '../hooks/useAudioScheduler';
-import { assignPiece, suggestOctave } from '../services/autoFingering';
+import { assignPiece, planPiece, noteEndTimes, suggestOctave } from '../services/autoFingering';
+import { heldTranspose } from '../hooks/useKeyboardInput';
 import { KEYMAP_PRESETS } from '../constants';
 import { THEMES, ThemePalette, themeCssVariables } from '../theme';
 import { INSTRUMENTS, INSTRUMENT_LEVEL_DB, dbToGain, softClipCurve, velocityToGain } from '../services/audioEngine';
@@ -14,7 +16,9 @@ import { SAMPLE_SOURCES, SampleLibrary, getSampleBaseUrl, isSampleSourceID } fro
 import { trackEvent } from '../services/analytics';
 import { closeOpenNotes, sanitizeEvents, selectTakesToPrune, summarizeEvents } from '../services/takeStore';
 import { findNextGate, isGateSatisfied, isWithinGateWindow, remainingNotes, withHit } from '../services/waitGate';
-import { GUIDE_NOW, GUIDE_STEPS, approachLevel, guideFillOpacity, nowEntries, sameLevels, upcomingEntries } from '../services/practiceGuide';
+import { GUIDE_NOW, GUIDE_STEPS, approachLevel, buildPracticeGuide, guideFillOpacity, holdingEntries, nextPracticePitches, nowEntries, sameLevels, upcomingEntries } from '../services/practiceGuide';
+import { audioEngineTests } from './audioEngine.test';
+import { pianoRollTests } from './pianoRoll.test';
 
 type TestCase = {
   name: string;
@@ -370,6 +374,7 @@ test('sameLevels compares guide maps by content', () => {
 
 const FREEPIANO = KEYMAP_PRESETS.freepiano.map;
 const LAPTOP = { useNumpad: false };
+const FULL_SIZE = { useNumpad: true };
 const fingerNotes = (events: RecordedEvent[], options = LAPTOP, offset = 0) => {
   const assignments = assignPiece(events, FREEPIANO, offset, options);
   return events.map(evt => {
@@ -410,6 +415,95 @@ test('a chord mixing black and white keys still hints every note', () => {
     'with a numpad the white notes move to keys Shift does not affect');
 });
 
+test('playback duration cues match note-offs to their MIDI source', () => {
+  const a = { time: 0, type: 'on' as const, note: 'C4', transpose: 0, instrumentId: 'salamander' as const, trackName: 'A', channel: 0 };
+  const b = { ...a, trackName: 'B', channel: 1 };
+  const events = [a, b, { ...b, type: 'off' as const, time: 200 }, { ...a, type: 'off' as const, time: 500 }];
+  assert.deepEqual([...computeActiveEvents(events, 300).values()], [a]);
+});
+
+test('rapid repeated pitches remain separate gates with their simultaneous partners', () => {
+  const events = [on(0, 'C4'), off(20, 'C4'), on(30, 'E4'), on(30, 'C4')];
+  const first = findNextGate(events, 0);
+  assert.ok(first);
+  assert.equal(first.endTimeMs, 0);
+  assert.deepEqual(first.required, [60]);
+  const second = findNextGate(events, first.endTimeMs, false);
+  assert.deepEqual(second?.required, [60, 64]);
+});
+
+test('full-size fingering defaults to unmodified notes on the numpad', () => {
+  const events = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4'].map((note, i) => on(i * 500, note));
+  const assignments = assignPiece(events, FREEPIANO, 0);
+  assert.deepEqual(events.map(evt => assignments.get(evt)?.code),
+    ['Numpad1', 'Numpad2', 'Numpad3', 'Numpad4', 'Numpad5', 'Numpad6']);
+  assert.ok(events.every(evt => assignments.get(evt)?.hand === 'right'));
+});
+
+test('full-size fingering divides mixed chords between the main block and numpad', () => {
+  for (const [notes, modifier] of [
+    [['D4', 'F#4', 'A4'], 1],
+    [['C4', 'Eb4', 'G4'], -1],
+  ] as const) {
+    const events = notes.map(note => on(0, note));
+    const assignments = assignPiece(events, FREEPIANO, 0, FULL_SIZE);
+    for (const [index, evt] of events.entries()) {
+      const assignment = assignments.get(evt);
+      assert.ok(assignment);
+      assert.equal(assignment.hand, index === 1 ? 'left' : 'right');
+      assert.equal(assignment.modifier, index === 1 ? modifier : 0);
+      assert.equal(IMMUNE_TO_MODIFIERS.has(assignment.code), index !== 1);
+      const sounding = getTransposedNote(FREEPIANO[assignment.code],
+        IMMUNE_TO_MODIFIERS.has(assignment.code) ? 0 : modifier);
+      assert.equal(noteToMidi(sounding), noteToMidi(evt.note), 'holding one modifier plays the whole chord correctly');
+    }
+  }
+});
+
+test('full-size fingering keeps main-key bass when the numpad cannot reach it', () => {
+  const bass = on(0, 'C2');
+  const assignments = assignPiece([bass], FREEPIANO, 0, FULL_SIZE);
+  assert.equal(assignments.get(bass)?.code, 'KeyZ');
+  assert.equal(assignments.get(bass)?.modifier, 0);
+  assert.equal(assignments.get(bass)?.hand, 'left');
+});
+
+test('full-size chord hints sound correctly after octave and key transposition', () => {
+  for (const offset of [-12, -3, 0, 5, 12]) {
+    const events = ['D4', 'F#4', 'A4'].map(note => on(0, getTransposedNote(note, offset)));
+    const assignments = assignPiece(events, FREEPIANO, offset, FULL_SIZE);
+    assert.equal(assignments.size, events.length);
+    const { activeKeys } = assignFingering(new Map(events.map((evt, i) => [String(i), evt])), assignments);
+    assert.ok(activeKeys.has('ShiftLeft'));
+    assert.ok(!activeKeys.has('ControlLeft'));
+    for (const evt of events) {
+      const assignment = assignments.get(evt);
+      assert.ok(assignment);
+      const temporary = IMMUNE_TO_MODIFIERS.has(assignment.code) ? 0 : 1;
+      assert.equal(noteToMidi(getTransposedNote(FREEPIANO[assignment.code], offset + temporary)), noteToMidi(evt.note));
+    }
+  }
+});
+
+test('full-size mode respects presets with directly mapped black keys', () => {
+  for (const { map } of [KEYMAP_PRESETS.flashpiano, KEYMAP_PRESETS.idreampiano]) {
+    const events = ['D4', 'F#4', 'A4'].map(note => on(0, note));
+    const assignments = assignPiece(events, map, 0, FULL_SIZE);
+    assert.equal(assignments.size, events.length);
+    const modifiers = new Set([...assignments.values()]
+      .filter(assignment => !IMMUNE_TO_MODIFIERS.has(assignment.code))
+      .map(assignment => assignment.modifier));
+    assert.equal(modifiers.size, 1, 'the whole chord uses a shared modifier');
+    const modifier = [...modifiers][0];
+    for (const evt of events) {
+      const assignment = assignments.get(evt);
+      assert.ok(assignment);
+      assert.equal(noteToMidi(getTransposedNote(map[assignment.code],
+        IMMUNE_TO_MODIFIERS.has(assignment.code) ? 0 : modifier)), noteToMidi(evt.note));
+    }
+  }
+});
+
 test('two MIDI tracks are split into hands by average pitch', () => {
   const events = [
     on(0, 'E4', { trackName: 'RH' }), on(0, 'C4', { trackName: 'LH' }),
@@ -417,7 +511,7 @@ test('two MIDI tracks are split into hands by average pitch', () => {
   ];
   const assignments = assignPiece(events, FREEPIANO, 0, LAPTOP);
   assert.deepEqual(events.map(evt => assignments.get(evt)?.hand), ['right', 'left', 'right', 'left']);
-  assert.equal(assignments.get(events[1])?.code, 'KeyK', "the left hand plays C4 from its own row");
+  assert.equal(assignments.get(events[1])?.code, 'KeyQ', 'left C4 moves to Q to avoid crossing the right hand playing E');
 });
 
 test('recorded key presses are never re-fingered', () => {
@@ -442,6 +536,168 @@ test('assignFingering lights the assigned key and its modifier', () => {
   const { activeKeys, activeNotes } = assignFingering(new Map([['a', sharp]]), assignments);
   assert.deepEqual([...activeNotes], ['F#4']);
   assert.deepEqual([...activeKeys].sort(), ['KeyR', 'ShiftLeft']);
+});
+
+test('sequence planning anticipates a chromatic phrase instead of changing hands', () => {
+  const ons = ['C4', 'C#4', 'D4', 'D#4', 'E4'].map((note, i) => on(i * 180, note));
+  const events = ons.flatMap(evt => [evt, off(evt.time + 160, evt.note)]).sort((a, b) => a.time - b.time);
+  const greedy = planPiece(events, FREEPIANO, 0, { ...FULL_SIZE, beamWidth: 1 });
+  const planned = planPiece(events, FREEPIANO, 0, FULL_SIZE);
+  assert.equal(planned.adaptations, 0);
+  assert.ok(planned.cost < greedy.cost, 'retaining future alternatives lowers the complete phrase cost');
+  assert.equal(greedy.assignments.get(ons[0])?.hand, 'right');
+  assert.ok(ons.every(evt => planned.assignments.get(evt)?.hand === 'left'), 'the chromatic melody stays in one hand');
+});
+
+test('note durations pair overlapping unisons within each MIDI source', () => {
+  const a = on(0, 'C4', { channel: 0, trackName: 'A' });
+  const a2 = on(100, 'C4', { channel: 0, trackName: 'A' });
+  const b = on(0, 'C4', { channel: 1, trackName: 'B' });
+  const ends = noteEndTimes([a, b, a2,
+    off(200, 'C4', { channel: 1, trackName: 'B' }),
+    off(500, 'C4', { channel: 0, trackName: 'A' }),
+    off(900, 'C4', { channel: 0, trackName: 'A' })]);
+  assert.equal(ends.get(a), 500);
+  assert.equal(ends.get(a2), 900);
+  assert.equal(ends.get(b), 200);
+});
+
+test('sustained notes keep their physical key and finger free from new attacks', () => {
+  const held = on(0, 'C#4', { trackName: 'LH' });
+  const next = on(150, 'C4', { trackName: 'RH' });
+  const plan = planPiece([held, next, off(600, 'C4', { trackName: 'RH' }), off(900, 'C#4', { trackName: 'LH' })], FREEPIANO, 0);
+  const a = plan.assignments.get(held);
+  const b = plan.assignments.get(next);
+  assert.ok(a && b);
+  assert.notEqual(a.code, b.code);
+  assert.ok(a.hand !== b.hand || a.finger !== b.finger);
+  assert.deepEqual(plan.issues, [], 'a legal sustained solution needs no early release');
+});
+
+test('simultaneous unisons share one recommended physical press', () => {
+  const a = on(0, 'C4', { trackName: 'A' });
+  const b = on(0, 'C4', { trackName: 'B' });
+  const plan = planPiece([a, b, off(300, 'C4', { trackName: 'A' }), off(500, 'C4', { trackName: 'B' })], FREEPIANO, 0);
+  assert.deepEqual(plan.assignments.get(a), plan.assignments.get(b));
+  assert.equal(plan.adaptations, 0);
+});
+
+test('finger planning is independent of the order of simultaneous MIDI events', () => {
+  const events = ['D4', 'F#4', 'A4'].map(note => on(0, note));
+  const forward = planPiece(events, FREEPIANO, 0);
+  const reversed = planPiece([...events].reverse(), FREEPIANO, 0);
+  assert.deepEqual(events.map(evt => forward.assignments.get(evt)), events.map(evt => reversed.assignments.get(evt)));
+  assert.equal(forward.cost, reversed.cost);
+});
+
+test('a chord reserves distinct fingers including the modifier little finger', () => {
+  const events = ['C3', 'D4', 'F#4', 'A4'].map(note => on(0, note));
+  const plan = planPiece(events, FREEPIANO, 0);
+  const assigned = [...plan.assignments.values()];
+  const simultaneous = assigned.every(assignment => assignment.step === 0);
+  assert.ok(simultaneous, 'this chord has a simultaneous solution');
+  const fingers = assigned.map(assignment => `${assignment.hand}:${assignment.finger}`);
+  assert.equal(new Set(fingers).size, fingers.length);
+  assert.ok(assigned.filter(assignment => assignment.hand === 'left').every(assignment => assignment.finger !== 5));
+});
+
+test('a dense chord is explicitly adapted instead of teaching impossible simultaneous fingers', () => {
+  const events = ['C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4', 'D4', 'E4', 'F4', 'G4'].map(note => on(0, note));
+  const plan = planPiece(events, FREEPIANO, 0);
+  assert.equal(plan.assignments.size, events.length);
+  assert.ok(plan.issues.some(issue => issue.type === 'roll'));
+  assert.ok([...plan.assignments.values()].every(assignment => (assignment.step ?? 0) > 0));
+  assert.ok([...plan.assignments.values()].some(assignment => assignment.releaseBefore?.length));
+});
+
+test('a six-note chord can share the main block and numpad instead of overloading one hand', () => {
+  const events = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4'].map(note => on(0, note));
+  const plan = planPiece(events, FREEPIANO, 0);
+  assert.equal(plan.adaptations, 0);
+  assert.equal(plan.assignments.size, 6);
+  assert.ok([...plan.assignments.values()].some(assignment => assignment.hand === 'left'));
+  assert.ok([...plan.assignments.values()].some(assignment => assignment.hand === 'right'));
+});
+
+test('unavoidable key reuse explicitly tells the learner to release the held key', () => {
+  const first = on(0, 'C4');
+  const second = on(100, 'C4');
+  const plan = planPiece([first, second, off(500, 'C4'), off(700, 'C4')], { Numpad1: 'C4' }, 0);
+  assert.deepEqual(plan.assignments.get(second)?.releaseBefore, ['Numpad1']);
+  assert.ok(plan.issues.some(issue => issue.type === 'release' && issue.time === 100));
+});
+
+test('rolled teaching shows and accepts one modifier-compatible step at a time', () => {
+  const events = ['D4', 'F#4', 'A4'].map(note => on(0, note));
+  const plan = planPiece(events, FREEPIANO, 0, LAPTOP);
+  let gate = findNextGate(events, 0);
+  assert.ok(gate);
+  for (const evt of events) {
+    assert.deepEqual(nextPracticePitches(events, gate, plan.assignments), [noteToMidi(evt.note)]);
+    const guide = buildPracticeGuide(nowEntries([], events, gate, true), plan.assignments, true);
+    const assignment = plan.assignments.get(evt);
+    assert.ok(assignment?.finger);
+    assert.equal(guide.keys.get(assignment.code), GUIDE_NOW);
+    assert.equal(guide.instruction.fingers.get(assignment.code)?.finger, assignment.finger);
+    const currentControls = ['ShiftLeft', 'ControlLeft'].filter(code => guide.keys.get(code) === GUIDE_NOW);
+    assert.deepEqual(currentControls, assignment.modifier === 1 ? ['ShiftLeft'] : assignment.modifier === -1 ? ['ControlLeft'] : []);
+    gate = withHit(gate, noteToMidi(evt.note));
+  }
+  assert.ok(isGateSatisfied(gate));
+});
+
+test('a sustained altered note does not keep asking for its old modifier', () => {
+  const held = on(0, 'F#4');
+  const next = on(300, 'C4');
+  const plan = planPiece([held, next, off(600, 'C4'), off(900, 'F#4')], FREEPIANO, 0);
+  const guide = buildPracticeGuide([{ evt: held, level: 1 }, { evt: next, level: 1 }], plan.assignments, false);
+  assert.equal(guide.keys.get('ShiftLeft'), undefined);
+  assert.equal(guide.instruction.fingers.get(plan.assignments.get(held)!.code)?.note, 'F#4');
+});
+
+test('wait-mode duration cues keep accepted notes held without re-asking for their modifier', () => {
+  const held = on(0, 'F#4');
+  const next = on(300, 'C4');
+  const events = [held, next, off(600, 'C4'), off(900, 'F#4')];
+  const plan = planPiece(events, FREEPIANO, 0);
+  const gate = findNextGate(events, 300);
+  assert.ok(gate);
+  const guide = buildPracticeGuide([...holdingEntries([held, next], gate), ...nowEntries([], events, gate, true)], plan.assignments, true);
+  const heldCode = plan.assignments.get(held)!.code;
+  assert.equal(guide.instruction.fingers.get(heldCode)?.holding, true);
+  assert.equal(guide.keys.get(heldCode), 0.6);
+  assert.equal(guide.keys.get('ShiftLeft'), undefined);
+  assert.deepEqual(holdingEntries([...computeActiveEvents(events, 950).values()], null), []);
+});
+
+test('only the left modifier keys transpose and releasing one restores the other', () => {
+  assert.equal(heldTranspose(new Set(['ShiftRight', 'ControlRight'])), 0);
+  assert.equal(heldTranspose(new Set(['ShiftLeft', 'ControlLeft']), 'ControlLeft'), -1);
+  assert.equal(heldTranspose(new Set(['ShiftLeft'])), 1);
+  assert.equal(heldTranspose(new Set(['ControlLeft'])), -1);
+  assert.equal(heldTranspose(new Set()), 0);
+});
+
+test('duration cues do not resurrect notes explicitly released by the plan', () => {
+  const first = on(0, 'C4');
+  const second = on(100, 'C4');
+  const third = on(300, 'D4');
+  const events = [first, second, third, off(500, 'C4'), off(700, 'C4')];
+  const plan = planPiece(events, { Numpad1: 'C4', Numpad2: 'D4' }, 0);
+  const gate = findNextGate(events, 300);
+  assert.ok(gate);
+  assert.deepEqual(holdingEntries([first, second, third], gate, plan.assignments).map(entry => entry.evt), [second]);
+});
+
+test('the teaching MIDI fixture imports into a complete finger plan without altering its events', () => {
+  const buffer = readFileSync('tests/fixtures/teaching.mid');
+  const events = parseMidiFile(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+  const snapshot = JSON.stringify(events);
+  const plan = planPiece(events, FREEPIANO, 0);
+  assert.equal(plan.assignments.size, 8);
+  assert.equal(plan.adaptations, 0);
+  assert.ok([...plan.assignments.values()].every(assignment => assignment.finger && assignment.step === 0));
+  assert.equal(JSON.stringify(events), snapshot, 'planning preserves imported/exported MIDI data');
 });
 
 // WCAG relative-luminance contrast between two #rrggbb colours.
@@ -521,6 +777,8 @@ test('the soft clipper is transparent at normal levels and never exceeds full sc
   assert.ok(Math.max(...curve.map(Math.abs)) < 1, 'output stays below full scale');
   for (let i = 1; i < size; i++) assert.ok(curve[i] >= curve[i - 1], 'the curve is monotonic');
 });
+
+tests.push(...audioEngineTests, ...pianoRollTests);
 
 for (const { name, run } of tests) {
   await run();

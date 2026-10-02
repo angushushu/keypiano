@@ -24,15 +24,17 @@ export function parseMidiFile(buffer: ArrayBuffer): RecordedEvent[] {
         const midi = new Midi(buffer);
         const events: RecordedEvent[] = [];
 
-        midi.tracks.forEach(track => {
+        midi.tracks.forEach((track, trackIndex) => {
             // Keep the source track identity so exporting the same events again
             // does not merge a multi-track file onto a single channel.
             const channel = readChannel(track.channel) ?? 0;
             const trackName = track.name || undefined;
             const program = readProgram(track.instrument?.number);
 
-            track.notes.forEach(note => {
+            track.notes.forEach((note, noteIndex) => {
+                const noteId = `midi-${trackIndex}-${noteIndex}`;
                 events.push({
+                    noteId,
                     time: note.time * 1000,
                     type: 'on',
                     note: note.name,
@@ -45,6 +47,7 @@ export function parseMidiFile(buffer: ArrayBuffer): RecordedEvent[] {
                 });
 
                 events.push({
+                    noteId,
                     time: (note.time + note.duration) * 1000,
                     type: 'off',
                     note: note.name,
@@ -86,18 +89,19 @@ const groupKey = (channel: number, trackName: string, program: number | null): s
 
 /** Pairs note-on/note-off events into notes on a single track. */
 function writeGroup(track: ExportTrack, events: RecordedEvent[]): void {
-    const pendingNotes: Record<number, { startTime: number, velocity: number }[]> = {};
+    const pendingNotes: Record<string, { midi: number, startTime: number, velocity: number }[]> = {};
 
     events.forEach(evt => {
         const rawMidi = noteToMidi(evt.note);
         const finalMidi = rawMidi + evt.transpose;
         const clampedMidi = Math.max(0, Math.min(127, finalMidi));
 
-        const key = finalMidi;
+        const key = evt.noteId ?? `pitch:${finalMidi}`;
 
         if (evt.type === 'on') {
             if (!pendingNotes[key]) pendingNotes[key] = [];
             pendingNotes[key].push({
+                midi: clampedMidi,
                 startTime: evt.time / 1000,
                 velocity: (evt.velocity || 80) / 127
             });
@@ -128,13 +132,12 @@ function writeGroup(track: ExportTrack, events: RecordedEvent[]): void {
     });
 
     const lastEventSec = events.length > 0 ? events[events.length - 1].time / 1000 : 0;
-    Object.entries(pendingNotes).forEach(([midiKey, pendingQueue]) => {
-        const midi = Math.max(0, Math.min(127, parseInt(midiKey, 10)));
+    Object.values(pendingNotes).forEach(pendingQueue => {
         pendingQueue.forEach(pending => {
             const duration = Math.max(0.05, lastEventSec - pending.startTime || 0.5);
             try {
                 track.addNote({
-                    midi,
+                    midi: pending.midi,
                     time: pending.startTime,
                     duration,
                     velocity: pending.velocity
@@ -146,8 +149,9 @@ function writeGroup(track: ExportTrack, events: RecordedEvent[]): void {
     });
 }
 
-export function generateMidiFile(events: RecordedEvent[]): Blob {
+export function generateMidiFile(events: RecordedEvent[], bpm = 120): Blob {
     const midi = new Midi();
+    midi.header.setTempo(Number.isFinite(bpm) ? clamp(bpm, 20, 300) : 120);
     const sortedEvents = [...events].sort((a, b) => a.time - b.time);
 
     // Imported files can carry several tracks. Group first so a round trip
@@ -177,6 +181,31 @@ export function generateMidiFile(events: RecordedEvent[]): Blob {
             track.instrument.number = group.program;
         }
         writeGroup(track, group.events);
+    }
+
+    // MIDI 1 note-offs identify pitch/channel, not a note instance. Nested
+    // unisons need separate channels or readers pair their durations FIFO.
+    const usedChannels = new Set(midi.tracks.map(track => track.channel));
+    const freeChannels = Array.from({ length: 16 }, (_, index) => index).filter(channel => channel !== 9 && !usedChannels.has(channel));
+    for (const track of [...midi.tracks]) {
+        const lanes: { track: ExportTrack; notes: typeof track.notes; ends: Map<number, number> }[] = [{ track, notes: [], ends: new Map() }];
+        for (const note of [...track.notes].sort((a, b) => a.time - b.time)) {
+            const end = note.time + note.duration;
+            let lane = lanes.find(entry => (entry.ends.get(note.midi) ?? -Infinity) <= end);
+            if (!lane) {
+                const channel = freeChannels.shift();
+                if (channel === undefined) throw new Error('MIDI_CHANNEL_OVERFLOW');
+                const extra = midi.addTrack();
+                extra.channel = channel;
+                extra.name = track.name;
+                extra.instrument.number = track.instrument.number;
+                lane = { track: extra, notes: [], ends: new Map() };
+                lanes.push(lane);
+            }
+            lane.notes.push(note);
+            lane.ends.set(note.midi, end);
+        }
+        for (const lane of lanes) lane.track.notes = lane.notes;
     }
 
     const array = midi.toArray();

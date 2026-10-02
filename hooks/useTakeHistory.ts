@@ -30,7 +30,8 @@ export function useTakeHistory({
     // storage (private mode, disabled site data), so callers can warn instead.
     const [isStorageAvailable, setIsStorageAvailable] = useState<boolean | null>(null);
 
-    const recordingTakeRef = useRef<{ id: string; createdAt: number } | null>(null);
+    const recordingTakeRef = useRef<{ id: string; createdAt: number; startTime: number } | null>(null);
+    const editingTakeRef = useRef<{ id: string; createdAt: number } | null>(null);
     const hasEventsRef = useRef(hasEvents);
     const isRecordingRef = useRef(isRecording);
     const loadEventsRef = useRef(loadEvents);
@@ -63,7 +64,7 @@ export function useTakeHistory({
     const snapshotRecording = useCallback(() => {
         const current = recordingTakeRef.current;
         if (!current || recordingRef.current.length === 0) return Promise.resolve(false);
-        const endTime = Date.now() - current.createdAt;
+        const endTime = Date.now() - current.startTime;
         const events = closeOpenNotes([...recordingRef.current], endTime);
         return save({ id: current.id, kind: 'recording', createdAt: current.createdAt, ...summarizeEvents(events), events });
     }, [recordingRef, save]);
@@ -107,12 +108,14 @@ export function useTakeHistory({
             }
             return;
         }
-        recordingTakeRef.current ??= { id: createTakeId(), createdAt: recordingStartTime };
+        recordingTakeRef.current ??= { id: createTakeId(), createdAt: Date.now(), startTime: recordingStartTime };
+        editingTakeRef.current = null;
         const interval = window.setInterval(() => { void snapshotRecording(); }, AUTOSAVE_INTERVAL_MS);
         return () => window.clearInterval(interval);
     }, [isRecording, recordingStartTime, snapshotRecording]);
 
     const saveImport = useCallback(async (events: RecordedEvent[], name: string) => {
+        editingTakeRef.current = null;
         const id = createTakeId();
         const saved = await save({ id, kind: 'import', name, createdAt: Date.now(), ...summarizeEvents(events), events });
         setCurrentTakeId(saved ? id : null);
@@ -123,6 +126,7 @@ export function useTakeHistory({
             const take = await takeStore.get(id);
             if (!take || take.events.length === 0) return false;
             loadEventsRef.current(take.events);
+            editingTakeRef.current = null;
             setCurrentTakeId(id);
             return true;
         } catch (error) {
@@ -141,11 +145,21 @@ export function useTakeHistory({
         }
     }, [refresh]);
 
+    // Edit a separate take, preserving the original performance/import.
+    const saveEdits = useCallback(async (events: RecordedEvent[]) => {
+        editingTakeRef.current ??= { id: createTakeId(), createdAt: Date.now() };
+        const current = editingTakeRef.current;
+        const saved = await save({ ...current, kind: 'recording', ...summarizeEvents(events), events });
+        setCurrentTakeId(saved ? current.id : null);
+        return saved;
+    }, [save]);
+
     return {
         takes,
         currentTakeId,
         isStorageAvailable,
         saveImport,
+        saveEdits,
         openTake,
         deleteTake,
     };

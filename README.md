@@ -30,6 +30,7 @@ npm run build
 
 - Samples load as soon as the page opens; your first click or keypress unlocks Web Audio, so there is no start screen to get past.
 - Play with the mapped computer keys, the visual computer keyboard, the 88-key piano, or an attached MIDI keyboard.
+- Organ, String Ensemble and Synth Lead keep sounding for as long as a key is held, including long notes in recording and MIDI playback. Releasing the key fades the voice using the selected sustain level (off: 30 ms; short: 0.5 s for Organ, 1 s for Strings/Lead; long or MIDI pedal down: 2 s). This release setting is separate from holding a key. Pianos, guitar and drums keep their natural decay.
 - The visual keyboards use one Tab stop each. Use the arrow keys to move between keys, then Enter or Space to play.
 - Open **Settings → MIDI keyboard → Enable MIDI** to request MIDI permission. Permission is requested only when you choose to enable it, and can be retried after denial.
 - Instrument, transpose, and octave changes are locked during recording and playback so a take always uses a consistent mapping and sound.
@@ -56,8 +57,8 @@ These work anywhere on the page (the same list is in the in-app **About** dialog
 | `F10` | Start or stop recording |
 | `F11` | Stop playback and reset the position |
 | `F12` | Reset transpose and octave |
-| `Shift` (held) | Raise left-hand notes by one semitone |
-| `Ctrl` (held) | Lower left-hand notes by one semitone |
+| Left `Shift` (`#L`, held) | Raise main-block notes by one semitone |
+| Left `Ctrl` (`bL`, held) | Lower main-block notes by one semitone |
 | `Space` | Play the note mapped to the spacebar |
 
 Octave and transpose keys (`F1`–`F4`) are ignored while recording or playing back, so a take always keeps one consistent mapping.
@@ -68,15 +69,51 @@ Every recording and imported MIDI file is saved in the browser (IndexedDB) as it
 
 Recordings store note-on and note-off events, velocity, key mapping, and transposition. MIDI import and export preserve overlapping notes of the same pitch.
 
+Held notes have no fixed duration limit: their length is the time between note-on and note-off. Sustained instruments use the same events for live input, scheduled playback and piano-roll editing.
+
 MIDI files do not preserve KeyPiano-specific UI state, instrument sample names, sustain-pedal automation, or metronome settings. Imported MIDI is played with the currently selected KeyPiano instrument. KeyPiano records note events rather than microphone or rendered audio.
 
-Track name, channel and program number from an imported file are kept and written back out, so a multi-track file survives a round trip instead of collapsing onto one channel. KeyPiano's own recordings are single-track and export on channel 1.
+Track name, channel and program number from an imported file are kept and written back out, so a multi-track file survives a round trip instead of collapsing onto one channel. KeyPiano's own recordings normally export as one track on channel 1; nested same-pitch notes may use extra channels to preserve their lengths.
+
+## Arrange view
+
+Choose **Arrange** in the view controls to open the horizontal piano roll. With
+**Auto record** enabled (the default), the first computer-keyboard, on-screen
+piano or MIDI note starts recording immediately. Held notes grow into bars;
+new performances append at the end of the current piece. Use **Stop recording**
+or `F10` to finish, then edit. Recording and playback lock editing.
+
+- Click an empty cell to add a note. Drag a note to change its onset and pitch;
+  drag its right edge to change its length.
+- Select a note and press Delete/Backspace or the trash button to remove it.
+  Arrow keys move it; Shift+Left/Right changes its length. Escape cancels a drag
+  or clears the selection.
+- Undo/Redo buttons and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Ctrl+Y retain up to 100
+  edits in the current editing session. Importing, recording or refreshing
+  starts a new undo history.
+- Choose free timing or 1/4–1/32 snapping, zoom the time axis, and scroll to
+  other pitches or measures. Recorded timing stays intact until an edit snaps it.
+- Play to audition, then download the edited piece with MIDI export. Existing
+  recordings and imported MIDI can be edited in the same view.
+
+Edits are saved locally as a separate take so the original remains in **Recent
+recordings**. The ruler uses 4/4 and the toolbar BPM; changing BPM changes the
+grid and exported tempo without stretching existing note times. MIDI export
+keeps track names, programs and channels. Nested same-pitch notes can require
+an extra MIDI channel to preserve their individual durations; if no channel is
+available, export reports this instead of changing their lengths.
 
 ## Practice mode
 
 Load a recording or MIDI file, turn on practice mode (graduation-cap button), then press Play. Playback is silent. Keys fill in with colour as their notes approach, like the notes falling in the waterfall view; a fully lit key means play it now. With **wait mode** (hourglass button, on by default) playback stops at each note or chord until you have pressed all of its notes (only the ones still to press stay fully lit), on any input: computer keyboard, on-screen keys or a MIDI keyboard. Notes are matched by pitch, so transposition does not matter. **Skip** moves past notes you cannot reach. Turn wait mode off to play along at a fixed tempo, optionally slowed down with the speed control.
 
-Pieces you recorded on the computer keyboard light the exact keys you pressed. For imported MIDI, KeyPiano picks keys the way a keyboard piano is played: the left hand on the two lower letter rows and the right hand on the Q and number rows (a file with separate tracks per hand keeps that split; otherwise the top note of each chord is the right hand and the rest split at middle C), black keys as Shift on the key below (or Ctrl on the key above for flats), and each hand staying near where it already is. Hints use only the main keys unless **Settings → My keyboard has a numpad** is on. When notes fall outside the keys' range, practice mode suggests an octave that fits more of them.
+Pieces you recorded on the computer keyboard light the exact keys you pressed. Imported MIDI is planned in the background before practice playback starts. The full-size default prefers unmodified notes on the numpad/navigation keys and altered notes on the main block with left Shift (`#L`) or left Ctrl (`bL`). For example, D–F#–A uses numpad 2 and 6 with Shift+R in the FreePiano map. The planner keeps several possible paths through the piece, considering note durations, occupied keys/fingers, chord span, modifier reach, movement speed, hand changes and modifier switches. It can keep a chromatic melody on the main block when that avoids repeatedly changing hands.
+
+Practice keys show the recommended hand and finger: **L/R** means left/right, and **1–5** means thumb, index, middle, ring and little finger. **•** after the finger number means keep holding until the cue ends. A held modifier uses the left little finger. If the original score cannot fit, the coach reports the adaptation. In wait mode, a chord requiring separate presses lights only its current step fully and advances to the next step after those pitches are played. A required early release names the key to release. Held notes retain their original note labels rather than asking you to hold an old modifier throughout the note.
+
+These are recommended fingerings under a conservative computer-keyboard model. The search is bounded for responsiveness, and its hand-span rules and cost weights are not calibrated to each person's hands or validated as expert fingerings. It does not claim a universal or mathematically proven optimum. The scoring model and search limits are documented in [Fingering planner](docs/fingering-planner.md).
+
+Turn off **Settings → My keyboard has a numpad** for a compact keyboard. Hands then prefer the lower and upper main rows (by track when possible); chords that cannot share one modifier need separate presses. A full-size keyboard can also require adaptations when reach or finger occupancy prevents the original score. This update resets the earlier numpad-hint preference to the full-size default once; subsequent choices are remembered. When notes fall outside the keys' range, practice mode suggests an octave that fits more of them.
 
 ## Browser support
 

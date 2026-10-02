@@ -17,6 +17,8 @@ interface VirtualKeyProps {
   isActive: boolean; // User interaction
   /** Practice guide brightness: 0 off, rising as the note approaches, 1 = press now. */
   guideLevel?: number;
+  fingerLabel?: string;
+  fingerDescription?: string;
   isModifier?: boolean;
   isDummy?: boolean;
   customLabel?: string;
@@ -39,6 +41,8 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
   height = 1,
   isActive, 
   guideLevel = 0,
+  fingerLabel,
+  fingerDescription,
   isDummy,
   customLabel,
   onMouseDown,
@@ -50,7 +54,8 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
 }) => {
   const mappedNote = note;
   const displayLabel = customLabel || label;
-  const accessibleLabel = mappedNote ? playNoteTemplate.replace('{note}', mappedNote) : (description || displayLabel);
+  const baseAccessibleLabel = mappedNote ? playNoteTemplate.replace('{note}', mappedNote) : (description || displayLabel);
+  const accessibleLabel = fingerDescription ? `${baseAccessibleLabel} · ${fingerDescription}` : baseAccessibleLabel;
   const jianpu = mappedNote ? getJianpu(mappedNote) : null;
 
   // GRID UNIT LOGIC
@@ -149,6 +154,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
     <div 
         ref={(element) => registerKeyRef?.(code, element)}
         data-virtual-key-code={isDummy ? undefined : code}
+        data-guide-finger={fingerLabel}
         className={`${baseClasses} ${stateClass}`}
         style={style}
         role={isDummy ? undefined : 'button'}
@@ -156,7 +162,7 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
         aria-label={isDummy ? undefined : accessibleLabel}
         aria-pressed={isDummy ? undefined : isActive || isGuideNow}
         tabIndex={isDummy ? -1 : isTabStop ? 0 : -1}
-        title={description}
+        title={fingerDescription ? `${description ?? displayLabel} · ${fingerDescription}` : description}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave} 
@@ -220,6 +226,11 @@ const VirtualKey: React.FC<VirtualKeyProps> = ({
           <span className={`relative text-[8px] sm:text-[11px] font-sans mt-1 sm:mt-2 tracking-widest uppercase opacity-50 hidden xs:block ${labelTextColor}`}>
             KeyPiano
           </span>
+      )}
+      {fingerLabel && !isDummy && (
+        <span aria-hidden="true" className={`absolute bottom-[2px] right-[2px] rounded border border-current px-[2px] py-[1px] text-[7px] sm:text-[10px] leading-none font-bold pointer-events-none ${mainTextColor}`}>
+          {fingerLabel}
+        </span>
       )}
     </div>
   );

@@ -41,7 +41,7 @@ export const summarizeEvents = (events: RecordedEvent[]) => ({
 export function closeOpenNotes(events: RecordedEvent[], endTimeMs: number): RecordedEvent[] {
     const open = new Map<string, RecordedEvent[]>();
     for (const evt of events) {
-        const key = evt.code || `${evt.note}_${evt.transpose}`;
+        const key = evt.noteId ?? evt.code ?? `${evt.note}_${evt.transpose}`;
         const queue = open.get(key) ?? [];
         if (evt.type === 'on') queue.push(evt);
         else queue.shift();
@@ -90,6 +90,7 @@ export function sanitizeEvents(value: unknown): RecordedEvent[] {
             note: evt.note,
             transpose: typeof evt.transpose === 'number' && Number.isFinite(evt.transpose) ? evt.transpose : 0,
             instrumentId: isInstrumentID(evt.instrumentId) ? evt.instrumentId : 'salamander',
+            ...(typeof evt.noteId === 'string' ? { noteId: evt.noteId } : {}),
             ...(typeof evt.code === 'string' ? { code: evt.code } : {}),
             ...(typeof evt.velocity === 'number' ? { velocity: Math.max(0, Math.min(127, evt.velocity)) } : {}),
             ...(typeof evt.channel === 'number' ? { channel: evt.channel } : {}),

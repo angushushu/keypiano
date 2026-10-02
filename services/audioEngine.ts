@@ -2,19 +2,20 @@
 
 import { NOTE_NAMES, FLAT_TO_SHARP } from '../constants';
 import { DEFAULT_SAMPLE_SOURCE, getSampleBaseUrl, SampleSourceID } from './sampleSources';
+import { prepareSustainLoop, type SustainLoop } from './sampleLoop';
 
 // Audio Engine - Sampler Based
 
 // Instrument Definitions
 export const INSTRUMENTS = [
-    { id: 'salamander', name: 'Yamaha C5 Grand (Pro)', type: 'custom' }, // New Best Option
-    { id: 'hq_piano', name: 'Standard Piano (Lite)', type: 'custom' },
-    { id: 'electric_grand_piano', name: 'Electric Piano', type: 'gm' },
-    { id: 'drawbar_organ', name: 'Organ', type: 'gm' },
-    { id: 'acoustic_guitar_steel', name: 'Acoustic Guitar', type: 'gm' },
-    { id: 'string_ensemble_1', name: 'String Ensemble', type: 'gm' },
-    { id: 'lead_1_square', name: 'Synth Lead', type: 'gm' },
-    { id: 'synth_drum', name: 'Synth Drum', type: 'gm' }
+    { id: 'salamander', name: 'Yamaha C5 Grand (Pro)', type: 'custom', playback: 'decay' }, // New Best Option
+    { id: 'hq_piano', name: 'Standard Piano (Lite)', type: 'custom', playback: 'decay' },
+    { id: 'electric_grand_piano', name: 'Electric Piano', type: 'gm', playback: 'decay' },
+    { id: 'drawbar_organ', name: 'Organ', type: 'gm', playback: 'sustain', loopAttackSeconds: 0.1 },
+    { id: 'acoustic_guitar_steel', name: 'Acoustic Guitar', type: 'gm', playback: 'decay' },
+    { id: 'string_ensemble_1', name: 'String Ensemble', type: 'gm', playback: 'sustain', loopAttackSeconds: 0.3 },
+    { id: 'lead_1_square', name: 'Synth Lead', type: 'gm', playback: 'sustain', loopAttackSeconds: 0.1 },
+    { id: 'synth_drum', name: 'Synth Drum', type: 'gm', playback: 'decay' }
 ] as const;
 
 export type InstrumentID = typeof INSTRUMENTS[number]['id'];
@@ -118,12 +119,17 @@ interface ActiveSource {
     instrumentId: InstrumentID;
 }
 
-class AudioEngine {
+interface Sample {
+    buffer: AudioBuffer;
+    loop: SustainLoop | null;
+}
+
+export class AudioEngine {
     private ctx: AudioContext | null = null;
     private masterGain: GainNode | null = null;
     private compressor: DynamicsCompressorNode | null = null;
     private softClipper: WaveShaperNode | null = null;
-    private buffers: Map<string, AudioBuffer> = new Map();
+    private buffers: Map<string, Sample> = new Map();
     private activeSources: Map<string, ActiveSource[]> = new Map();
     private liveSources = new Set<ActiveSource>();
     private loadGeneration = 0;
@@ -390,7 +396,8 @@ class AudioEngine {
             }
             if (!map['C4']) map['C4'] = 'C4.mp3';
             const gmBase = getSampleBaseUrl(sampleSource, 'gm');
-            await this.loadSamples(`${gmBase}${instrumentId}-mp3/`, map, generation, controller.signal);
+            const loopAttack = instDef.playback === 'sustain' ? instDef.loopAttackSeconds : undefined;
+            await this.loadSamples(`${gmBase}${instrumentId}-mp3/`, map, generation, controller.signal, loopAttack);
         }
 
         if (generation !== this.loadGeneration || controller.signal.aborted) return;
@@ -423,7 +430,8 @@ class AudioEngine {
         baseUrl: string,
         map: Record<string, string>,
         generation: number,
-        signal: AbortSignal
+        signal: AbortSignal,
+        loopAttackSeconds?: number,
     ) {
         const entries = Object.entries(map);
 
@@ -449,7 +457,12 @@ class AudioEngine {
                     if (this.ctx && generation === this.loadGeneration && !signal.aborted) {
                         const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
                         if (generation === this.loadGeneration && !signal.aborted) {
-                            this.buffers.set(note, audioBuffer);
+                            const loop = loopAttackSeconds === undefined ? null : prepareSustainLoop(this.ctx, audioBuffer, loopAttackSeconds);
+                            // Unusable samples fall back to the nearest loaded
+                            // pitch, just like a download/decode failure. A held
+                            // instrument must never quietly become one-shot.
+                            if (loopAttackSeconds !== undefined && !loop) throw new Error('No audible sustain region');
+                            this.buffers.set(note, { buffer: loop?.buffer ?? audioBuffer, loop });
                         }
                     }
                 } catch (e) {
@@ -508,7 +521,7 @@ class AudioEngine {
         return octave * 12 + index + 12; 
     }
 
-    private getClosestBuffer(midi: number): { buffer: AudioBuffer, distance: number } | null {
+    private getClosestBuffer(midi: number): (Sample & { distance: number }) | null {
         if (this.buffers.size === 0) return null;
 
         let minDist = Infinity;
@@ -524,17 +537,17 @@ class AudioEngine {
         }
 
         if (closestNote && this.buffers.has(closestNote)) {
-            return { buffer: this.buffers.get(closestNote)!, distance: minDist };
+            return { ...this.buffers.get(closestNote)!, distance: minDist };
         }
         return null;
     }
 
-    public playNote(note: string, transpose: number = 0, velocity: number = 100, when: number = 0) {
+    public playNote(note: string, transpose: number = 0, velocity: number = 100, when: number = 0, voiceId?: string) {
         if (!this.ctx || !this.isLoaded || !this.masterGain) return;
         
         if (when === 0) this.resumeIfSuspended();
 
-        const mapKey = `${note}_${transpose}`;
+        const mapKey = voiceId === undefined ? `${note}_${transpose}` : `voice:${voiceId}`;
 
         const baseMidi = this.getNoteNumber(note);
         if (baseMidi === 0) return;
@@ -547,6 +560,11 @@ class AudioEngine {
         const source = this.ctx.createBufferSource();
         source.buffer = match.buffer;
         source.playbackRate.value = Math.pow(2, match.distance / 12);
+        if (match.loop) {
+            source.loop = true;
+            source.loopStart = match.loop.start;
+            source.loopEnd = match.loop.end;
+        }
 
         const gain = this.ctx.createGain();
         gain.gain.value = velocityToGain(velocity) * dbToGain(INSTRUMENT_LEVEL_DB[this.currentInstrument]);
@@ -575,8 +593,8 @@ class AudioEngine {
         };
     }
 
-    public stopNote(note: string, transpose: number = 0, when: number = 0) {
-        const mapKey = `${note}_${transpose}`;
+    public stopNote(note: string, transpose: number = 0, when: number = 0, voiceId?: string) {
+        const mapKey = voiceId === undefined ? `${note}_${transpose}` : `voice:${voiceId}`;
         const queue = this.activeSources.get(mapKey);
         const active = queue?.shift();
         

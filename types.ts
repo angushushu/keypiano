@@ -12,6 +12,8 @@ export interface KeyDef {
 }
 
 export interface RecordedEvent {
+  /** Stable note instance identity for piano-roll edits and crossing unisons. */
+  noteId?: string;
   time: number;
   type: 'on' | 'off';
   note: string;
@@ -28,6 +30,8 @@ export interface RecordedEvent {
   trackName?: string;
   program?: number;   // General MIDI program number, 0-127
 }
+
+export type MainView = 'stave' | 'keyboard' | 'waterfall' | 'arrange';
 
 export type NoteType = 'user' | 'practice';
 

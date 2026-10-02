@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useMemo } from 'react';
 import { RecordedEvent } from '../types';
-import { NOTE_NAMES, getTransposedNote, noteToMidi } from '../constants';
+import { NOTE_NAMES } from '../constants';
+import { eventsToRollNotes } from '../services/pianoRoll';
 import { Theme } from '../theme';
 
 interface WaterfallVisualizerProps {
@@ -57,32 +58,11 @@ const WaterfallVisualizer: React.FC<WaterfallVisualizerProps> = ({
 
     // Produce blocks with start/end time
     const noteBlocks = useMemo(() => {
-        const blocks: { midi: number, startTime: number, endTime: number, isBlack: boolean }[] = [];
-        const activeMap = new Map<string, number>();
-
-        for (const evt of recording) {
-            const visualNote = getTransposedNote(evt.note, evt.transpose);
-            const midi = noteToMidi(visualNote);
-            const key = `${midi}_${evt.code || 'nocode'}`;
-            
-            if (evt.type === 'on') {
-                activeMap.set(key, evt.time);
-            } else {
-                const st = activeMap.get(key);
-                if (st !== undefined) {
-                    blocks.push({ midi, startTime: st, endTime: Math.max(evt.time, st + 50), isBlack: keyLayout.get(midi)?.isBlack || false });
-                    activeMap.delete(key);
-                }
-            }
-        }
-        
-        // Any notes still 'on' at the end of recording calculation, give them a nominal duration
-        activeMap.forEach((st, key) => {
-            const midi = parseInt(key.split('_')[0], 10);
-            blocks.push({ midi, startTime: st, endTime: st + 500, isBlack: keyLayout.get(midi)?.isBlack || false });
-        });
-
-        return blocks;
+        return eventsToRollNotes(recording).map(note => ({
+            midi: note.pitch, startTime: note.start,
+            endTime: note.held ? note.start + 500 : Math.max(note.end, note.start + 50),
+            isBlack: keyLayout.get(note.pitch)?.isBlack ?? false,
+        }));
     }, [recording, keyLayout]);
 
     useEffect(() => {

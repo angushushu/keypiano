@@ -24,6 +24,11 @@ interface TranslationSet {
   theme: string;
   language: string;
   view: string;
+  arrange: {
+    title: string; auto: string; ready: string; recording: string; editing: string;
+    hint: string; empty: string; snap: string; free: string; undo: string; redo: string;
+    delete: string; stop: string; zoom: string; grid: string; note: string; resize: string;
+  };
   toggleStave: string;
   toggleKeyboard: string;
   togglePiano: string;
@@ -89,6 +94,22 @@ interface TranslationSet {
     label: string;
     hint: string;
   };
+  fingering: {
+    planning: string;
+    failed: string;
+    legend: string;
+    leftShort: string;
+    rightShort: string;
+    left: string;
+    right: string;
+    finger: string;
+    numpadKey: string;
+    hold: string;
+    adaptations: string;
+    release: string;
+    roll: string;
+    useWaitMode: string;
+  };
   practiceRange: {
     /** `{count}` notes out of range now, `{octave}` suggested, `{after}` left out after switching. */
     message: string;
@@ -136,6 +157,7 @@ interface TranslationSet {
   };
   errors: {
     midiParseFailed: string;
+    midiExportFailed: string;
     audioInitFailed: string;
     importDuringRecording: string;
     /** Sample-download warning, with `{count}` replaced by the number of failures. */
@@ -148,6 +170,15 @@ export type { TranslationSet };
 export const TRANSLATIONS: Record<Language, TranslationSet> = {
   en: {
     title: 'KeyPiano',
+    arrange: {
+      title: 'Arrange', auto: 'Auto record', ready: 'Play to record · appends to the end',
+      recording: 'Recording · stop to edit', editing: 'Editor',
+      hint: 'Click to add · drag to move · drag the right edge to resize · Delete to remove · Ctrl+Z to undo',
+      empty: 'Play your keyboard or click the grid to add your first note.',
+      snap: 'Snap', free: 'Free', undo: 'Undo', redo: 'Redo', delete: 'Delete note',
+      stop: 'Stop recording', zoom: 'Zoom', grid: 'Piano roll',
+      note: '{note} · {start}s · {duration}s', resize: 'Resize note',
+    },
     loading: 'Loading Sounds...',
     aboutTitle: 'About KeyPiano',
     aboutDesc: 'KeyPiano is a browser-based polyphonic synthesizer inspired by FreePiano.',
@@ -248,7 +279,20 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     },
     numpadHints: {
       label: 'My keyboard has a numpad',
-      hint: 'Practice hints for imported MIDI may then also use the numpad and arrow keys.',
+      hint: 'On by default: unmodified notes prefer the numpad and navigation keys; the main keys handle #L/bL. Turn off if your keyboard has no numpad; some chords then need separate presses.',
+    },
+    fingering: {
+      planning: 'Planning fingering…',
+      failed: 'Fingering could not be planned. Reload the piece to retry.',
+      legend: 'Suggested fingering · L/R = left/right · 1 thumb, 2 index, 3 middle, 4 ring, 5 little finger · • keep holding until the cue ends',
+      leftShort: 'L', rightShort: 'R', left: 'Left hand', right: 'Right hand',
+      finger: '{hand}, finger {finger}',
+      numpadKey: 'Numpad {key}',
+      hold: 'Keep holding until the cue ends',
+      adaptations: '{roll} chords need separate presses · {release} early releases · {unreachable} notes outside range',
+      release: 'Release {keys} before playing the highlighted notes.',
+      roll: 'Play the bright keys first, then follow the next step.',
+      useWaitMode: 'Turn on wait mode to learn the separate presses step by step.',
     },
     practiceRange: {
       message: '{count} notes are outside the keyboard range. Octave {octave} leaves {after}.',
@@ -305,6 +349,7 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     },
     errors: {
       midiParseFailed: 'Failed to parse MIDI file.',
+      midiExportFailed: 'MIDI export needs more channels for overlapping unisons. Reduce overlapping notes or free a MIDI channel and try again.',
       audioInitFailed: 'Could not load the sounds. Try again, or pick another sample server in Settings.',
       importDuringRecording: 'Stop recording before importing a MIDI file.',
       samplesFailed: '{count} samples failed to load. Using pitch-shift fallback.'
@@ -312,6 +357,15 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
   },
   zh: {
     title: '键盘钢琴',
+    arrange: {
+      title: '编曲', auto: '自动录入', ready: '开始弹奏即可录入 · 接在已有音符末尾',
+      recording: '正在录入 · 停止后可编辑', editing: '编辑模式',
+      hint: '点空白处添加 · 拖动音符移动 · 拖右边缘改长度 · Delete 删除 · Ctrl+Z 撤销',
+      empty: '弹奏键盘，或点击网格，添加第一个音符。',
+      snap: '吸附', free: '自由', undo: '撤销', redo: '重做', delete: '删除音符',
+      stop: '停止录入', zoom: '缩放', grid: '钢琴卷帘',
+      note: '{note} · {start} 秒 · 时长 {duration} 秒', resize: '调整音符长度',
+    },
     loading: '加载音色中...',
     aboutTitle: '关于 KeyPiano',
     aboutDesc: 'KeyPiano 是一个受 FreePiano 启发的基于浏览器的多复音合成器。',
@@ -412,7 +466,20 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     },
     numpadHints: {
       label: '我的键盘有小键盘',
-      hint: '开启后，导入 MIDI 的练习提示也会用到小键盘和方向键。',
+      hint: '默认开启：不需变调的音优先用小键盘和导航键，主键盘负责 #L/bL 变调。没有小键盘可关闭，但部分和弦需分次弹奏。',
+    },
+    fingering: {
+      planning: '正在规划指法…',
+      failed: '指法规划失败，请重新载入曲目重试。',
+      legend: '建议指法 · 左/右表示手别 · 1 拇指、2 食指、3 中指、4 无名指、5 小指 · • 表示继续按住，提示消失后松键',
+      leftShort: '左', rightShort: '右', left: '左手', right: '右手',
+      finger: '{hand}第 {finger} 指',
+      numpadKey: '小键盘 {key}',
+      hold: '继续按住，提示消失后松键',
+      adaptations: '{roll} 组和弦需分次弹奏 · {release} 处需提前松键 · {unreachable} 个音超出键位范围',
+      release: '先松开 {keys}，再弹奏高亮音符。',
+      roll: '先弹奏亮起的键，再跟随下一步提示。',
+      useWaitMode: '开启等待模式，可逐步学习分次弹奏的和弦。',
     },
     practiceRange: {
       message: '有 {count} 个音超出键位范围，换到八度 {octave} 后剩 {after} 个。',
@@ -469,6 +536,7 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     },
     errors: {
       midiParseFailed: '无法解析 MIDI 文件。',
+      midiExportFailed: '同音重叠需要额外 MIDI 通道。请减少重叠音符或腾出通道后再导出。',
       audioInitFailed: '音色加载失败。请重试，或在设置中切换音源下载线路。',
       importDuringRecording: '请先停止录音，再导入 MIDI 文件。',
       samplesFailed: '{count} 个采样加载失败，已改用变调回退。'

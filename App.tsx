@@ -10,6 +10,8 @@ import StatusBar from './components/StatusBar';
 import SettingsPanel from './components/SettingsPanel';
 import InfoModal from './components/InfoModal';
 import TakesPanel from './components/TakesPanel';
+import FingeringCoach from './components/FingeringCoach';
+import PianoRoll from './components/PianoRoll';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { SynthProvider, useSynth } from './contexts/SynthContext';
 import { MetronomeProvider, useMetronome } from './contexts/MetronomeContext';
@@ -17,31 +19,36 @@ import { audioEngine } from './services/audioEngine';
 import { generateMidiFile, parseMidiFile } from './services/midiIO';
 import {
   ALL_ROWS,
+  IMMUNE_TO_MODIFIERS,
   getTransposedNote
 } from './constants';
 import { Loader2, Minimize } from 'lucide-react';
-import { TriggerNote } from './types';
+import { TriggerNote, type RecordedEvent, type MainView } from './types';
 import { useMidiDevice } from './hooks/useMidiDevice';
 import { useAudioScheduler } from './hooks/useAudioScheduler';
 import { useKeyboardInput } from './hooks/useKeyboardInput';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { useRecordingState } from './hooks/useRecordingState';
 import { useTakeHistory } from './hooks/useTakeHistory';
-import { assignPiece, suggestOctave } from './services/autoFingering';
+import { suggestOctave } from './services/autoFingering';
+import { useFingeringPlan } from './hooks/useFingeringPlan';
+import { EMPTY_INSTRUCTION, type GuideInstruction } from './services/practiceGuide';
 
 // ─── Inner App (consumes contexts) ──────────────────────────────
 
 const MAX_TRIGGER_NOTES = 500;
 const WAIT_MODE_STORAGE_KEY = 'keypiano.waitMode.v1';
-const NUMPAD_HINTS_STORAGE_KEY = 'keypiano.numpadHints.v1';
+// v1 saved its old laptop default as "off" even without a user choice. Start
+// the full-size default once in v2, then remember explicit changes as before.
+const NUMPAD_HINTS_STORAGE_KEY = 'keypiano.numpadHints.v2';
 
-// Laptops have no numpad, so practice hints stay on the main block unless
-// the player says otherwise.
+// Full-size keyboards can combine altered main-block notes with fixed-pitch
+// numpad notes. Players without a numpad can opt out in Settings.
 const readNumpadHintsPreference = () => {
   try {
-    return localStorage.getItem(NUMPAD_HINTS_STORAGE_KEY) === 'on';
+    return localStorage.getItem(NUMPAD_HINTS_STORAGE_KEY) !== 'off';
   } catch {
-    return false;
+    return true;
   }
 };
 
@@ -84,10 +91,11 @@ const AppInner: React.FC = () => {
     transposeBase, setTransposeBase, octaveShift, setOctaveShift,
     cycleSustain, synthStateRef, toast, setToast,
   } = useSynth();
-  const { setIsMetronomeOn } = useMetronome();
+  const { setIsMetronomeOn, bpm } = useMetronome();
 
   // View state
-  const [mainView, setMainView] = useState<'stave' | 'keyboard' | 'waterfall'>('keyboard');
+  const [mainView, setMainView] = useState<MainView>(() => new URLSearchParams(window.location.search).get('view') === 'arrange' ? 'arrange' : 'keyboard');
+  const [autoCapture, setAutoCapture] = useState(true);
   const [showPiano, setShowPiano] = useState(true);
   const [pianoHeight, setPianoHeight] = useState(180);
   const [isToolbarOpen, setIsToolbarOpen] = useState(true);
@@ -113,7 +121,7 @@ const AppInner: React.FC = () => {
   // Recording state (useReducer-based)
   const {
     isRecording, recordedEvents, recordingStartTime, elapsedTime,
-    recordingRef, addRecordingEvent,
+    recordingRef, captureEvent, startAppendRecording, sessionRef, stopRecording,
     stopAndReset: recordingStopAndReset,
     toggleRecording: recordingToggle,
     loadMidiEvents,
@@ -132,6 +140,7 @@ const AppInner: React.FC = () => {
   const [playbackNotes, setPlaybackNotes] = useState<Set<string>>(new Set());
   const [guideKeys, setGuideKeys] = useState<Map<string, number>>(EMPTY_GUIDE);
   const [guideNotes, setGuideNotes] = useState<Map<string, number>>(EMPTY_GUIDE);
+  const [guideInstruction, setGuideInstruction] = useState<GuideInstruction>(EMPTY_INSTRUCTION);
   const [playbackTempTranspose, setPlaybackTempTranspose] = useState(0);
   const [activeMouseNotes, setActiveMouseNotes] = useState<Set<string>>(new Set());
   const [activeMidiNotes, setActiveMidiNotes] = useState<Set<string>>(new Set());
@@ -188,17 +197,18 @@ const AppInner: React.FC = () => {
   // Keys for imported notes, chosen once per piece, keymap and transposition
   // so a hinted note never jumps to another key while it approaches.
   const fingeringOptions = useMemo(() => ({ useNumpad: useNumpadHints }), [useNumpadHints]);
-  const keyAssignments = useMemo(
-    () => assignPiece(recordedEvents, currentKeyMap, transposeBase + octaveShift * 12, fingeringOptions),
-    [recordedEvents, currentKeyMap, transposeBase, octaveShift, fingeringOptions],
+  const { plan: fingeringPlan, isPlanning, failed: fingeringFailed } = useFingeringPlan(
+    recordedEvents, currentKeyMap, transposeBase + octaveShift * 12, fingeringOptions,
   );
+  const keyAssignments = fingeringPlan.assignments;
+  const hasImportedNotes = useMemo(() => recordedEvents.some(evt => evt.type === 'on' && !evt.code), [recordedEvents]);
   const octaveAdvice = useMemo(
     () => (isPracticeMode ? suggestOctave(recordedEvents, currentKeyMap, transposeBase, octaveShift, fingeringOptions) : null),
     [isPracticeMode, recordedEvents, currentKeyMap, transposeBase, octaveShift, fingeringOptions],
   );
 
   // Playback clear helper
-  const clearPlaybackVisuals = useCallback(() => { setPlaybackKeys(new Set()); setPlaybackNotes(new Set()); setGuideKeys(EMPTY_GUIDE); setGuideNotes(EMPTY_GUIDE); }, []);
+  const clearPlaybackVisuals = useCallback(() => { setPlaybackKeys(new Set()); setPlaybackNotes(new Set()); setGuideKeys(EMPTY_GUIDE); setGuideNotes(EMPTY_GUIDE); setGuideInstruction(EMPTY_INSTRUCTION); }, []);
 
   useEffect(() => {
     try {
@@ -224,19 +234,45 @@ const AppInner: React.FC = () => {
     recordingRef, isPracticeMode, isWaitMode, playbackSpeed,
     keyAssignments,
     setPlaybackKeys, setPlaybackNotes, setTriggerNotes, setPlaybackTempTranspose,
-    setGuideKeys, setGuideNotes, setElapsedTime: (t: number) => recordingDispatch({ type: 'SET_ELAPSED', elapsed: t }), elapsedTime,
+    setGuideKeys, setGuideNotes, setGuideInstruction, setElapsedTime: (t: number) => recordingDispatch({ type: 'SET_ELAPSED', elapsed: t }), elapsedTime,
   });
+  const togglePracticePlayback = () => {
+    if (isPracticeMode && (isPlanning || fingeringFailed) && !isPlayingBack) return;
+    togglePlayback();
+  };
+  useEffect(() => {
+    // A new mapping needs a new plan; stop teaching before using stale keys.
+    if (isPracticeMode && isPlanning && isPlayingBack) pausePlayback();
+  }, [isPracticeMode, isPlanning, isPlayingBack, pausePlayback]);
+
+  const capturePerformanceEvent = useCallback((event: Omit<RecordedEvent, 'time'>) => {
+    if (event.type === 'on' && mainView === 'arrange' && autoCapture && !sessionRef.current.active && !isPlayingBack) {
+      const end = recordingRef.current.reduce((latest, evt) => Math.max(latest, evt.time), 0);
+      startAppendRecording(end, clearPlaybackVisuals, pausePlayback);
+    }
+    captureEvent(event);
+  }, [mainView, autoCapture, isPlayingBack, sessionRef, recordingRef, startAppendRecording, clearPlaybackVisuals, pausePlayback, captureEvent]);
+
+  const changeView = useCallback((view: MainView) => {
+    if (mainView === 'arrange' && sessionRef.current.active) stopRecording();
+    if (view === 'arrange') {
+      if (isPlayingBack) pausePlayback();
+      setIsPracticeMode(false);
+      setShowPiano(true);
+    }
+    setMainView(view);
+  }, [mainView, sessionRef, stopRecording, pausePlayback, isPlayingBack]);
 
   // MIDI device hook
   const { isSustainPedalDown, midiStatus, midiInputCount, requestMidiAccess } = useMidiDevice({
-    currentInstrument, isRecording, recordingStartTime,
-    addRecordingEvent, setTriggerNotes, setActiveMidiNotes,
+    currentInstrument, onPerformanceEvent: capturePerformanceEvent,
+    setTriggerNotes, setActiveMidiNotes,
     onUserNote: registerUserNote,
   });
 
   // Saved recordings and imports (IndexedDB)
   const {
-    takes, currentTakeId, isStorageAvailable, saveImport, openTake, deleteTake,
+    takes, currentTakeId, isStorageAvailable, saveImport, saveEdits, openTake, deleteTake,
   } = useTakeHistory({
     isRecording, recordingStartTime, recordingRef,
     hasEvents: recordedEvents.length > 0,
@@ -273,6 +309,7 @@ const AppInner: React.FC = () => {
       const vel = Math.min(127, Math.max(0, keyVelocity));
       const finalNote = getTransposedNote(note, totalTranspose);
       activeKeyParamsRef.current.set(code, { note, transpose: totalTranspose });
+      capturePerformanceEvent({ type: 'on', note, code, transpose: totalTranspose, instrumentId: currentInstrument, velocity: vel });
       if (audioEngine.isLoaded) {
         audioEngine.playNote(note, totalTranspose, vel);
       } else {
@@ -285,29 +322,25 @@ const AppInner: React.FC = () => {
       }
       setTriggerNotes(prev => [...prev, { note: finalNote, time: Date.now(), type: 'user' }]);
       registerUserNote(finalNote);
-      if (isRecording) {
-        recordingRef.current.push({ time: Date.now() - recordingStartTime, type: 'on', note, code, transpose: totalTranspose, instrumentId: currentInstrument, velocity: vel });
-      }
     }
     setActiveKeys(prev => { const n = new Set(prev); n.add(code); return n; });
-  }, [isRecording, recordingStartTime, currentInstrument, keyVelocity, currentKeyMap, getEffectiveTranspose, ensureAudioStarted, synthStateRef, setActiveKeys, setTriggerNotes, registerUserNote]);
+  }, [capturePerformanceEvent, currentInstrument, keyVelocity, currentKeyMap, getEffectiveTranspose, ensureAudioStarted, synthStateRef, setActiveKeys, setTriggerNotes, registerUserNote]);
 
   const stopNoteByCode = useCallback((code: string) => {
     const activeParams = activeKeyParamsRef.current.get(code);
     if (activeParams) {
       audioEngine.stopNote(activeParams.note, activeParams.transpose);
       activeKeyParamsRef.current.delete(code);
-      if (isRecording) {
-        recordingRef.current.push({ time: Date.now() - recordingStartTime, type: 'off', note: activeParams.note, code, transpose: activeParams.transpose, instrumentId: currentInstrument });
-      }
+      capturePerformanceEvent({ type: 'off', note: activeParams.note, code, transpose: activeParams.transpose, instrumentId: currentInstrument });
     }
     setActiveKeys(prev => { const n = new Set(prev); n.delete(code); return n; });
-  }, [isRecording, recordingStartTime, currentInstrument, setActiveKeys]);
+  }, [capturePerformanceEvent, currentInstrument, setActiveKeys]);
 
   const playNoteByName = useCallback((noteName: string) => {
     if (activeMouseNotesRef.current.has(noteName)) return;
     activeMouseNotesRef.current.add(noteName);
     const velocity = Math.min(127, Math.max(0, keyVelocity));
+    capturePerformanceEvent({ type: 'on', note: noteName, code: `Piano:${noteName}`, transpose: 0, instrumentId: currentInstrument, velocity });
     if (audioEngine.isLoaded) {
       audioEngine.playNote(noteName, 0, velocity);
     } else {
@@ -321,35 +354,21 @@ const AppInner: React.FC = () => {
     setTriggerNotes(prev => [...prev, { note: noteName, time: Date.now(), type: 'user' }]);
     registerUserNote(noteName);
     setActiveMouseNotes(new Set(activeMouseNotesRef.current));
-    if (isRecording) {
-      recordingRef.current.push({
-        time: Date.now() - recordingStartTime,
-        type: 'on',
-        note: noteName,
-        code: `Piano:${noteName}`,
-        transpose: 0,
-        instrumentId: currentInstrument,
-        velocity,
-      });
-    }
-  }, [currentInstrument, ensureAudioStarted, isRecording, keyVelocity, recordingRef, recordingStartTime, setTriggerNotes, registerUserNote]);
+  }, [capturePerformanceEvent, currentInstrument, ensureAudioStarted, keyVelocity, setTriggerNotes, registerUserNote]);
 
   const stopNoteByName = useCallback((noteName: string) => {
     if (!activeMouseNotesRef.current.has(noteName)) return;
     activeMouseNotesRef.current.delete(noteName);
     audioEngine.stopNote(noteName, 0);
     setActiveMouseNotes(new Set(activeMouseNotesRef.current));
-    if (isRecording) {
-      recordingRef.current.push({
-        time: Date.now() - recordingStartTime,
+    capturePerformanceEvent({
         type: 'off',
         note: noteName,
         code: `Piano:${noteName}`,
         transpose: 0,
         instrumentId: currentInstrument,
-      });
-    }
-  }, [currentInstrument, isRecording, recordingRef, recordingStartTime]);
+    });
+  }, [capturePerformanceEvent, currentInstrument]);
 
   // Function key handler
   const handleFunctionKey = (code: string) => {
@@ -362,8 +381,8 @@ const AppInner: React.FC = () => {
       'F5': () => setKeyVelocity(Math.max(0, keyVelocity - 10)),
       'F6': () => setKeyVelocity(Math.min(127, keyVelocity + 10)),
       'F7': () => setIsMetronomeOn(prev => !prev),
-      'F8': () => setMainView(prev => prev === 'stave' ? 'keyboard' : 'stave'),
-      'F9': togglePlayback,
+      'F8': () => changeView(mainView === 'stave' ? 'keyboard' : 'stave'),
+      'F9': togglePracticePlayback,
       'F10': () => toggleRecording(),
       'F11': () => stopAndReset(),
       'F12': () => { setTransposeBase(0); setOctaveShift(0); audioEngine.stopAllNotes(); },
@@ -379,9 +398,13 @@ const AppInner: React.FC = () => {
   }, [recordingStopAndReset, pausePlayback]);
 
   const toggleRecording = useCallback(() => {
+    if (mainView === 'arrange' && !sessionRef.current.active) {
+      startAppendRecording(recordingRef.current.reduce((end, event) => Math.max(end, event.time), 0), clearPlaybackVisuals, pausePlayback);
+      return;
+    }
     if (!isRecording && !confirmDiscardUnsavedTake()) return;
     recordingToggle(clearPlaybackVisuals, pausePlayback);
-  }, [isRecording, confirmDiscardUnsavedTake, recordingToggle, clearPlaybackVisuals, pausePlayback]);
+  }, [mainView, sessionRef, startAppendRecording, recordingRef, isRecording, confirmDiscardUnsavedTake, recordingToggle, clearPlaybackVisuals, pausePlayback]);
 
   const changePlaybackSpeed = useCallback((newSpeed: number) => {
     changePlaybackSpeedAnchor(newSpeed);
@@ -485,13 +508,21 @@ const AppInner: React.FC = () => {
   // MIDI file handlers
   const handleExportMidi = useCallback(() => {
     if (recordedEvents.length === 0) return;
-    const blob = generateMidiFile(recordedEvents);
+    let blob: Blob;
+    try { blob = generateMidiFile(recordedEvents, bpm); }
+    catch { setToast({ message: t.errors.midiExportFailed, variant: 'error' }); return; }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = `KeyPiano_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.mid`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     // Revoking in the same tick can cancel the download before it starts.
     setTimeout(() => URL.revokeObjectURL(url), 0);
-  }, [recordedEvents]);
+  }, [recordedEvents, bpm, setToast, t.errors.midiExportFailed]);
+
+  const editArrangement = useCallback((events: RecordedEvent[]) => {
+    if (sessionRef.current.active || isPlayingBack) return;
+    loadMidiEvents(events, pausePlayback);
+    void saveEdits(events);
+  }, [sessionRef, isPlayingBack, loadMidiEvents, pausePlayback, saveEdits]);
 
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -539,12 +570,14 @@ const AppInner: React.FC = () => {
           isToolbarOpen={isToolbarOpen} setIsToolbarOpen={setIsToolbarOpen}
           isRecording={isRecording} isPlayingBack={isPlayingBack}
           recordedEvents={recordedEvents} elapsedTime={elapsedTime}
-          toggleRecording={toggleRecording} togglePlayback={togglePlayback}
+          toggleRecording={toggleRecording} togglePlayback={togglePracticePlayback}
+          isPracticePreparing={isPracticeMode && (isPlanning || fingeringFailed)}
+          practicePreparationLabel={fingeringFailed ? t.fingering.failed : t.fingering.planning}
           stopAndReset={stopAndReset} changePlaybackSpeed={changePlaybackSpeed}
           playbackSpeed={playbackSpeed} isPracticeMode={isPracticeMode} setIsPracticeMode={setIsPracticeMode}
           isWaitMode={isWaitMode} setIsWaitMode={setIsWaitMode}
           showTakes={showTakes} setShowTakes={setShowTakes} takesButtonRef={takesButtonRef}
-          mainView={mainView} setMainView={setMainView} showPiano={showPiano} setShowPiano={setShowPiano}
+          mainView={mainView} setMainView={changeView} showPiano={showPiano} setShowPiano={setShowPiano}
           isSustainPedalDown={isSustainPedalDown} isLgUp={isLgUp}
           onImportMidi={() => fileInputRef.current?.click()} onExportMidi={handleExportMidi}
           setShowInfo={setShowInfo} setShowSettings={setShowSettings} showSettings={showSettings}
@@ -578,6 +611,10 @@ const AppInner: React.FC = () => {
         onOpen={id => { if (confirmDiscardUnsavedTake()) void openTake(id); }}
         onDelete={id => { void deleteTake(id); }}
       />
+
+      {isPracticeMode && hasImportedNotes && (
+        <FingeringCoach plan={fingeringPlan} instruction={guideInstruction} isPlanning={isPlanning} failed={fingeringFailed} isWaitMode={isWaitMode} />
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col relative overflow-hidden">
@@ -614,16 +651,20 @@ const AppInner: React.FC = () => {
                     if (baseNote) {
                       const visualTemp = tempTranspose !== 0 ? tempTranspose : (isPlayingBack ? playbackTempTranspose : 0);
                       let eff = visualTemp;
-                      if (k.code.startsWith('Numpad') || k.code.startsWith('Arrow') || ['Insert', 'Home', 'PageUp', 'Delete', 'End', 'PageDown'].includes(k.code)) eff = 0;
+                      if (IMMUNE_TO_MODIFIERS.has(k.code)) eff = 0;
                       displayedNote = getTransposedNote(baseNote, transposeBase + (octaveShift * 12) + eff);
                     }
+                    const fingerHint = isPracticeMode ? guideInstruction.fingers.get(k.code) : undefined;
+                    if (fingerHint?.note) displayedNote = fingerHint.note;
                     return (
                       <VirtualKey key={k.code + idx} {...k} note={displayedNote}
                         customLabel={k.code === 'Coffee' ? t.buyCoffee : k.customLabel}
                         description={t.keyDescriptions[k.code] ?? k.description}
                         playNoteTemplate={t.playNote}
-                        isActive={activeKeys.has(k.code) || (!isPracticeMode && playbackKeys.has(k.code)) || (k.code === 'ShiftLeft' && (tempTranspose !== 0 ? tempTranspose : (isPlayingBack ? playbackTempTranspose : 0)) === 1) || (k.code === 'ControlLeft' && (tempTranspose !== 0 ? tempTranspose : (isPlayingBack ? playbackTempTranspose : 0)) === -1)}
+                        isActive={activeKeys.has(k.code) || (!isPracticeMode && playbackKeys.has(k.code)) || (k.code === 'ShiftLeft' && (tempTranspose !== 0 ? tempTranspose : (!isPracticeMode && isPlayingBack ? playbackTempTranspose : 0)) === 1) || (k.code === 'ControlLeft' && (tempTranspose !== 0 ? tempTranspose : (!isPracticeMode && isPlayingBack ? playbackTempTranspose : 0)) === -1)}
                         guideLevel={isPracticeMode ? guideKeys.get(k.code) ?? 0 : 0}
+                        fingerLabel={fingerHint ? `${fingerHint.hand === 'left' ? t.fingering.leftShort : t.fingering.rightShort}${fingerHint.finger}${fingerHint.holding ? '•' : ''}` : undefined}
+                        fingerDescription={fingerHint ? `${t.fingering.finger.replace('{hand}', fingerHint.hand === 'left' ? t.fingering.left : t.fingering.right).replace('{finger}', String(fingerHint.finger))}${fingerHint.holding ? ` · ${t.fingering.hold}` : ''}` : undefined}
                         onMouseDown={playNoteByCode} onMouseUp={stopNoteByCode} theme={theme}
                         isTabStop={focusedVirtualKeyCode === k.code}
                         onMoveFocus={moveVirtualKeyFocus}
@@ -640,6 +681,11 @@ const AppInner: React.FC = () => {
           <div className="flex-1 flex flex-col w-full relative overflow-hidden p-2">
             <WaterfallVisualizer recording={recordedEvents} currentTimeMs={elapsedTime} playbackSpeed={playbackSpeed} theme={theme} />
           </div>
+        )}
+        {mainView === 'arrange' && (
+          <PianoRoll events={isRecording ? recordingRef.current : recordedEvents} currentTime={elapsedTime} bpm={bpm}
+            isRecording={isRecording} isPlaying={isPlayingBack} autoCapture={autoCapture} onAutoCapture={setAutoCapture}
+            onChange={editArrangement} onStopRecording={stopRecording} onExport={handleExportMidi} />
         )}
       </div>
 

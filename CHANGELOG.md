@@ -8,6 +8,48 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-01
+
+### Changed
+
+- Imported MIDI practice hints now default to a full-size keyboard: unmodified
+  notes prefer the numpad/navigation keys with the right hand, and the main
+  block handles altered notes with the left hand. Chords prioritize sharing a
+  single Shift (`#L`) or Ctrl (`bL`) state before minimizing movement.
+- The numpad-hint preference resets once to the new default, because the old
+  version stored its automatic laptop default as an explicit off value.
+  Players without a numpad can turn it off in Settings; that choice is remembered.
+- Imported MIDI fingerings now use a bounded sequence search instead of choosing
+  each chord greedily. Planning considers sustained keys, occupied fingers,
+  hand span, modifier reach, tempo, posture and melodic hand continuity, and
+  runs in a cancellable background worker before practice playback starts.
+
+### Added
+
+- An Arrange view with live automatic keyboard/MIDI capture into a horizontal
+  piano roll, append recording, note movement/resizing/addition/deletion,
+  snapping, zoom, keyboard editing, undo/redo, local edit copies and MIDI export.
+- Stable note identities across recording, editing, persistence and playback.
+  MIDI export uses spare channels for nested unisons and writes the selected BPM.
+- Hold-to-sound playback for Organ, String Ensemble and Synth Lead, shared by
+  computer/on-screen keyboards, MIDI input and recording playback. Prepared
+  sample loops preserve the attack, avoid silent tails and crossfade the seam;
+  note-off retains the selected release tail. Piano, guitar and drum decay is
+  unchanged, and recorded/MIDI long-note durations are preserved.
+- Recommended hand/finger numbers on practice keys, with a finger legend.
+- Explicit serial-chord and early-release instructions. Wait-mode teaching
+  advances serial chords one step at a time instead of lighting incompatible
+  modifier states together.
+
+### Fixed
+
+- A held altered note no longer keeps asking for its old modifier after a new
+  attack; its note label retains the onset pitch.
+- Wait mode retains a holding cue until the note ends, keeps rapid repeated
+  attacks in separate steps, and matches duration cues to their MIDI source.
+- Right Shift remains a mapped performance key. Only left Shift/Ctrl transpose,
+  and releasing one modifier restores the other if it is still held.
+
 ## [1.4.1] - 2026-09-28
 
 ### Changed

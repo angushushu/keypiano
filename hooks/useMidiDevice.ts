@@ -5,9 +5,7 @@ import { RecordedEvent, TriggerNote } from '../types';
 
 interface UseMidiDeviceProps {
     currentInstrument: InstrumentID;
-    isRecording: boolean;
-    recordingStartTime: number;
-    addRecordingEvent: (evt: RecordedEvent) => void;
+    onPerformanceEvent: (evt: Omit<RecordedEvent, 'time'>) => void;
     setTriggerNotes: (updater: (prev: TriggerNote[]) => TriggerNote[]) => void;
     setActiveMidiNotes: (updater: (prev: Set<string>) => Set<string>) => void;
     /** Reports each note-on, e.g. so practice wait mode can count it. */
@@ -16,9 +14,7 @@ interface UseMidiDeviceProps {
 
 export function useMidiDevice({
     currentInstrument,
-    isRecording,
-    recordingStartTime,
-    addRecordingEvent,
+    onPerformanceEvent,
     setTriggerNotes,
     setActiveMidiNotes,
     onUserNote,
@@ -33,14 +29,12 @@ export function useMidiDevice({
     const [midiInputCount, setMidiInputCount] = useState(0);
 
     // Refs for stale closure prevention
-    const recordingStartTimeRef = useRef(recordingStartTime);
     const currentInstrumentRef = useRef(currentInstrument);
-    const isRecordingRef = useRef(isRecording);
+    const performanceEventRef = useRef(onPerformanceEvent);
     const midiNoteCountsRef = useRef(new Map<string, number>());
 
-    useEffect(() => { recordingStartTimeRef.current = recordingStartTime; }, [recordingStartTime]);
     useEffect(() => { currentInstrumentRef.current = currentInstrument; }, [currentInstrument]);
-    useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
+    useEffect(() => { performanceEventRef.current = onPerformanceEvent; }, [onPerformanceEvent]);
 
     const requestMidiAccess = useCallback(async () => {
         const midiRequest = getMidiRequest();
@@ -79,22 +73,13 @@ export function useMidiDevice({
                 
                 // Note On
                 if (command === 144 && velocity > 0) {
+                    performanceEventRef.current({ type: 'on', note: noteName, transpose: 0, instrumentId: currentInstrumentRef.current, velocity });
                     audioEngine.playNote(noteName, 0, velocity); 
                     midiNoteCountsRef.current.set(noteName, (midiNoteCountsRef.current.get(noteName) ?? 0) + 1);
                     setActiveMidiNotes(prev => new Set(prev).add(noteName));
                     setTriggerNotes(prev => [...prev, { note: noteName, time: Date.now(), type: 'user' }]);
                     onUserNote(noteName);
             
-                    if (isRecordingRef.current) {
-                        addRecordingEvent({
-                            time: Date.now() - recordingStartTimeRef.current,
-                            type: 'on',
-                            note: noteName,
-                            transpose: 0,
-                            instrumentId: currentInstrumentRef.current,
-                            velocity: velocity
-                        });
-                    }
                 } 
                 // Note Off
                 else if (command === 128 || (command === 144 && velocity === 0)) {
@@ -108,15 +93,12 @@ export function useMidiDevice({
                         return s;
                     });
                     
-                    if (isRecordingRef.current) {
-                        addRecordingEvent({
-                            time: Date.now() - recordingStartTimeRef.current,
-                            type: 'off',
-                            note: noteName,
-                            transpose: 0,
-                            instrumentId: currentInstrumentRef.current
-                        });
-                    }
+                    performanceEventRef.current({
+                        type: 'off',
+                        note: noteName,
+                        transpose: 0,
+                        instrumentId: currentInstrumentRef.current
+                    });
                 }
             }
             // Control Change (Command 176)
@@ -132,11 +114,14 @@ export function useMidiDevice({
                 }
             }
         };
-    }, [addRecordingEvent, setActiveMidiNotes, setTriggerNotes, onUserNote]);
+    }, [setActiveMidiNotes, setTriggerNotes, onUserNote]);
 
     const releaseAllMidiNotes = useCallback(() => {
         midiNoteCountsRef.current.forEach((count, noteName) => {
-            for (let index = 0; index < count; index++) audioEngine.stopNote(noteName, 0);
+            for (let index = 0; index < count; index++) {
+                audioEngine.stopNote(noteName, 0);
+                performanceEventRef.current({ type: 'off', note: noteName, transpose: 0, instrumentId: currentInstrumentRef.current });
+            }
         });
         midiNoteCountsRef.current.clear();
         setActiveMidiNotes(() => new Set());

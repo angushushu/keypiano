@@ -20,6 +20,24 @@ export interface WaitGate {
 }
 
 export const eventPitch = (evt: RecordedEvent) => noteToMidi(getTransposedNote(evt.note, evt.transpose));
+export const noteQueueKey = (evt: RecordedEvent) => JSON.stringify([
+    evt.noteId, evt.code, evt.channel, evt.trackName, evt.program, evt.instrumentId, eventPitch(evt),
+]);
+
+/** Repeated attacks start a new chord; simultaneous unisons stay together. */
+export function groupNoteChords(events: RecordedEvent[]): RecordedEvent[][] {
+    const ons = events.filter(evt => evt.type === 'on').sort((a, b) => a.time - b.time || eventPitch(a) - eventPitch(b));
+    const chords: RecordedEvent[][] = [];
+    for (let index = 0; index < ons.length;) {
+        const batch = [ons[index++]];
+        while (index < ons.length && ons[index].time === batch[0].time) batch.push(ons[index++]);
+        const current = chords[chords.length - 1];
+        if (current && batch[0].time - current[0].time <= CHORD_WINDOW_MS
+            && !batch.some(evt => current.some(previous => eventPitch(previous) === eventPitch(evt)))) current.push(...batch);
+        else chords.push(batch);
+    }
+    return chords;
+}
 
 /**
  * The first chord starting at or after `fromMs` (strictly after it when
@@ -29,9 +47,10 @@ export function findNextGate(events: RecordedEvent[], fromMs: number, inclusive 
     const first = events.find(evt => evt.type === 'on' && (inclusive ? evt.time >= fromMs : evt.time > fromMs));
     if (!first) return null;
 
-    const chord = events.filter(evt => (
+    const candidates = events.filter(evt => (
         evt.type === 'on' && evt.time >= first.time && evt.time <= first.time + CHORD_WINDOW_MS
     ));
+    const chord = groupNoteChords(candidates)[0];
     return {
         timeMs: first.time,
         endTimeMs: Math.max(...chord.map(evt => evt.time)),
