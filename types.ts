@@ -32,6 +32,7 @@ export interface RecordedEvent {
 }
 
 export type MainView = 'stave' | 'keyboard' | 'waterfall' | 'arrange';
+export type AutoCaptureMode = 'continuous' | 'pressed';
 
 export type NoteType = 'user' | 'practice';
 

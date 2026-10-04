@@ -189,7 +189,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <button onMouseDown={preventMouseFocus} onClick={toggleRecording} className={`p-1.5 rounded-full transition-all ${isRecording ? 'bg-[color:var(--kp-rec)] text-white animate-pulse' : 'text-[color:var(--kp-rec)] hover:bg-[color:var(--kp-hover-bg)]'}`} title={t.record} aria-label={t.record} aria-pressed={isRecording}>
             {isRecording ? <Square className="w-3 h-3 fill-current" /> : <Circle className="w-3 h-3 fill-current" />}
           </button>
-          <button onMouseDown={preventMouseFocus} onClick={togglePlayback} disabled={isRecording || recordedEvents.length === 0 || (isPracticePreparing && !isPlayingBack)} className={`p-1.5 rounded-full transition-all disabled:opacity-30 ${controlClass(isPlayingBack)}`} title={isPracticePreparing ? practicePreparationLabel : t.playPause} aria-label={t.playPause} aria-pressed={isPlayingBack}>
+          <button onMouseDown={preventMouseFocus} onClick={togglePlayback} disabled={isRecording || recordedEvents.length === 0 || (isPracticePreparing && !isPlayingBack)} className={`p-1.5 rounded-full transition-all disabled:opacity-30 ${controlClass(isPlayingBack)}`} title={isPracticePreparing ? practicePreparationLabel : t.playPause} aria-label={t.playPause} aria-keyshortcuts={mainView === 'arrange' ? 'Space F9' : 'F9'} aria-pressed={isPlayingBack}>
             {isPlayingBack ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
           </button>
           <button onMouseDown={preventMouseFocus} onClick={stopAndReset} className={`p-1.5 rounded-full ${theme.controlOff}`} title={t.stopReset} aria-label={t.stopReset}>

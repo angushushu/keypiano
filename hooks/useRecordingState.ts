@@ -1,7 +1,8 @@
-import { useReducer, useRef, useEffect, useCallback } from 'react';
-import { RecordedEvent } from '../types';
+import { useReducer, useRef, useEffect, useCallback, useState } from 'react';
+import { RecordedEvent, AutoCaptureMode } from '../types';
 import { closeOpenNotes, createTakeId } from '../services/takeStore';
 import { noteQueueKey } from '../services/waitGate';
+import { RecordingClock } from '../services/recordingClock';
 
 // ─── State ──────────────────────────────────────────────────────
 
@@ -73,20 +74,22 @@ export function useRecordingState() {
   const recordingRef = useRef<RecordedEvent[]>([]);
   // A first note can start recording and be captured in the same event turn,
   // before React has rendered the new state (including a simultaneous chord).
-  const sessionRef = useRef({ active: false, startTime: 0 });
+  const sessionRef = useRef(new RecordingClock());
   const heldNoteIds = useRef(new Map<string, string[]>());
+  const [isRecordingPaused, setIsRecordingPaused] = useState(false);
+  const readRecordingTime = useCallback(() => sessionRef.current.read(), []);
 
   // Timer effect
   useEffect(() => {
     let interval: number;
     if (state.isRecording) {
       interval = window.setInterval(
-        () => dispatch({ type: 'TICK_TIMER', elapsed: Date.now() - state.recordingStartTime }),
+        () => dispatch({ type: 'TICK_TIMER', elapsed: readRecordingTime() }),
         50
       );
     }
     return () => clearInterval(interval);
-  }, [state.isRecording, state.recordingStartTime]);
+  }, [state.isRecording, state.recordingStartTime, readRecordingTime]);
 
   const addRecordingEvent = useCallback((evt: RecordedEvent) => {
     recordingRef.current.push(evt);
@@ -101,18 +104,24 @@ export function useRecordingState() {
     if (evt.type === 'on') queue.push(noteId);
     if (queue.length) heldNoteIds.current.set(key, queue);
     else heldNoteIds.current.delete(key);
-    recordingRef.current.push({ ...evt, noteId, time: Math.max(0, Date.now() - sessionRef.current.startTime) });
+    const now = Date.now();
+    if (evt.type === 'on') sessionRef.current.noteOn(now);
+    recordingRef.current = [...recordingRef.current, { ...evt, noteId, time: sessionRef.current.read(now) }];
+    if (evt.type === 'off') sessionRef.current.noteOff(now);
+    setIsRecordingPaused(sessionRef.current.paused);
+    dispatch({ type: 'SET_ELAPSED', elapsed: sessionRef.current.read(now) });
   }, []);
 
-  const startAppendRecording = useCallback((offset: number, clearPlaybackVisuals: () => void, pausePlayback: () => void) => {
+  const startAppendRecording = useCallback((offset: number, clearPlaybackVisuals: () => void, pausePlayback: () => void, mode: AutoCaptureMode = 'continuous') => {
     if (sessionRef.current.active) return;
     pausePlayback();
     recordingRef.current = [...recordingRef.current];
     heldNoteIds.current.clear();
-    const startTime = Date.now() - offset;
-    sessionRef.current = { active: true, startTime };
+    sessionRef.current.start(offset, mode);
+    setIsRecordingPaused(sessionRef.current.paused);
     clearPlaybackVisuals();
-    dispatch({ type: 'START_RECORDING', startTime });
+    dispatch({ type: 'START_RECORDING', startTime: sessionRef.current.startTime });
+    dispatch({ type: 'SET_ELAPSED', elapsed: offset });
   }, []);
 
   const startRecording = useCallback((clearPlaybackVisuals: () => void, pausePlayback: () => void) => {
@@ -120,17 +129,17 @@ export function useRecordingState() {
     recordingRef.current = [];
     heldNoteIds.current.clear();
     clearPlaybackVisuals();
-    const startTime = Date.now();
-    sessionRef.current = { active: true, startTime };
-    dispatch({ type: 'START_RECORDING', startTime });
+    sessionRef.current.start();
+    setIsRecordingPaused(false);
+    dispatch({ type: 'START_RECORDING', startTime: sessionRef.current.startTime });
   }, []);
 
   const stopRecording = useCallback(() => {
     if (sessionRef.current.active) {
-      recordingRef.current = closeOpenNotes([...recordingRef.current], Date.now() - sessionRef.current.startTime);
-      sessionRef.current.active = false;
+      recordingRef.current = closeOpenNotes([...recordingRef.current], sessionRef.current.stop());
       heldNoteIds.current.clear();
     }
+    setIsRecordingPaused(false);
     dispatch({ type: 'STOP_RECORDING', events: [...recordingRef.current] });
     dispatch({ type: 'SET_ELAPSED', elapsed: recordingRef.current.reduce((end, event) => Math.max(end, event.time), 0) });
   }, []);
@@ -156,7 +165,8 @@ export function useRecordingState() {
 
   const loadMidiEvents = useCallback((events: RecordedEvent[], pausePlayback: () => void) => {
     pausePlayback();
-    sessionRef.current.active = false;
+    sessionRef.current.stop();
+    setIsRecordingPaused(false);
     heldNoteIds.current.clear();
     recordingRef.current = events;
     dispatch({ type: 'SET_EVENTS', events });
@@ -165,6 +175,8 @@ export function useRecordingState() {
   return {
     ...state,
     recordingRef,
+    isRecordingPaused,
+    readRecordingTime,
     addRecordingEvent,
     captureEvent,
     startAppendRecording,

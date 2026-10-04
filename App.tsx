@@ -23,7 +23,7 @@ import {
   getTransposedNote
 } from './constants';
 import { Loader2, Minimize } from 'lucide-react';
-import { TriggerNote, type RecordedEvent, type MainView } from './types';
+import { TriggerNote, type RecordedEvent, type MainView, type AutoCaptureMode } from './types';
 import { useMidiDevice } from './hooks/useMidiDevice';
 import { useAudioScheduler } from './hooks/useAudioScheduler';
 import { useKeyboardInput } from './hooks/useKeyboardInput';
@@ -96,6 +96,7 @@ const AppInner: React.FC = () => {
   // View state
   const [mainView, setMainView] = useState<MainView>(() => new URLSearchParams(window.location.search).get('view') === 'arrange' ? 'arrange' : 'keyboard');
   const [autoCapture, setAutoCapture] = useState(true);
+  const [autoCaptureMode, setAutoCaptureMode] = useState<AutoCaptureMode>('continuous');
   const [showStandardPiano, setShowStandardPiano] = useState(true);
   const [showArrangePiano, setShowArrangePiano] = useState(false);
   const showPiano = mainView === 'arrange' ? showArrangePiano : showStandardPiano;
@@ -126,7 +127,7 @@ const AppInner: React.FC = () => {
 
   // Recording state (useReducer-based)
   const {
-    isRecording, recordedEvents, recordingStartTime, elapsedTime,
+    isRecording, isRecordingPaused, recordedEvents, recordingStartTime, elapsedTime, readRecordingTime,
     recordingRef, captureEvent, startAppendRecording, sessionRef, stopRecording,
     stopAndReset: recordingStopAndReset,
     toggleRecording: recordingToggle,
@@ -234,7 +235,7 @@ const AppInner: React.FC = () => {
 
   // Audio scheduler
   const {
-    isPlayingBack, togglePlayback, pausePlayback, changePlaybackSpeedAnchor,
+    isPlayingBack, togglePlayback, pausePlayback, seekPlayback, changePlaybackSpeedAnchor,
     waitingRemaining, registerUserNote, skipWaitingNotes,
   } = useAudioScheduler({
     recordingRef, isPracticeMode, isWaitMode, playbackSpeed,
@@ -243,6 +244,7 @@ const AppInner: React.FC = () => {
     setGuideKeys, setGuideNotes, setGuideInstruction, setElapsedTime: (t: number) => recordingDispatch({ type: 'SET_ELAPSED', elapsed: t }), elapsedTime,
   });
   const togglePracticePlayback = () => {
+    if (sessionRef.current.active) return;
     if (isPracticeMode && (isPlanning || fingeringFailed) && !isPlayingBack) return;
     togglePlayback();
   };
@@ -254,10 +256,10 @@ const AppInner: React.FC = () => {
   const capturePerformanceEvent = useCallback((event: Omit<RecordedEvent, 'time'>) => {
     if (event.type === 'on' && mainView === 'arrange' && autoCapture && !sessionRef.current.active && !isPlayingBack) {
       const end = recordingRef.current.reduce((latest, evt) => Math.max(latest, evt.time), 0);
-      startAppendRecording(end, clearPlaybackVisuals, pausePlayback);
+      startAppendRecording(end, clearPlaybackVisuals, pausePlayback, autoCaptureMode);
     }
     captureEvent(event);
-  }, [mainView, autoCapture, isPlayingBack, sessionRef, recordingRef, startAppendRecording, clearPlaybackVisuals, pausePlayback, captureEvent]);
+  }, [mainView, autoCapture, autoCaptureMode, isPlayingBack, sessionRef, recordingRef, startAppendRecording, clearPlaybackVisuals, pausePlayback, captureEvent]);
 
   const changeView = useCallback((view: MainView) => {
     if (mainView === 'arrange' && sessionRef.current.active) stopRecording();
@@ -279,7 +281,7 @@ const AppInner: React.FC = () => {
   const {
     takes, currentTakeId, isStorageAvailable, saveImport, saveEdits, openTake, deleteTake,
   } = useTakeHistory({
-    isRecording, recordingStartTime, recordingRef,
+    isRecording, recordingStartTime, recordingRef, readRecordingTime,
     hasEvents: recordedEvents.length > 0,
     loadEvents: events => loadMidiEvents(events, pausePlayback),
   });
@@ -404,12 +406,12 @@ const AppInner: React.FC = () => {
 
   const toggleRecording = useCallback(() => {
     if (mainView === 'arrange' && !sessionRef.current.active) {
-      startAppendRecording(recordingRef.current.reduce((end, event) => Math.max(end, event.time), 0), clearPlaybackVisuals, pausePlayback);
+      startAppendRecording(recordingRef.current.reduce((end, event) => Math.max(end, event.time), 0), clearPlaybackVisuals, pausePlayback, autoCapture ? autoCaptureMode : 'continuous');
       return;
     }
     if (!isRecording && !confirmDiscardUnsavedTake()) return;
     recordingToggle(clearPlaybackVisuals, pausePlayback);
-  }, [mainView, sessionRef, startAppendRecording, recordingRef, isRecording, confirmDiscardUnsavedTake, recordingToggle, clearPlaybackVisuals, pausePlayback]);
+  }, [mainView, autoCapture, autoCaptureMode, sessionRef, startAppendRecording, recordingRef, isRecording, confirmDiscardUnsavedTake, recordingToggle, clearPlaybackVisuals, pausePlayback]);
 
   const changePlaybackSpeed = useCallback((newSpeed: number) => {
     changePlaybackSpeedAnchor(newSpeed);
@@ -423,12 +425,14 @@ const AppInner: React.FC = () => {
   const handleKeyUpRef = useRef(handleKeyUp);
   const stopNoteByNameRef = useRef(stopNoteByName);
   const currentKeyMapRef = useRef(currentKeyMap);
+  const playbackShortcutRef = useRef({ mainView, toggle: togglePracticePlayback });
   useEffect(() => { playNoteByCodeRef.current = playNoteByCode; }, [playNoteByCode]);
   useEffect(() => { stopNoteByCodeRef.current = stopNoteByCode; }, [stopNoteByCode]);
   useEffect(() => { handleKeyDownRef.current = handleKeyDown; }, [handleKeyDown]);
   useEffect(() => { handleKeyUpRef.current = handleKeyUp; }, [handleKeyUp]);
   useEffect(() => { stopNoteByNameRef.current = stopNoteByName; }, [stopNoteByName]);
   useEffect(() => { currentKeyMapRef.current = currentKeyMap; }, [currentKeyMap]);
+  useEffect(() => { playbackShortcutRef.current = { mainView, toggle: togglePracticePlayback }; }, [mainView, togglePracticePlayback]);
 
   useEffect(() => {
     if (!isPortraitMobile) return;
@@ -475,6 +479,16 @@ const AppInner: React.FC = () => {
       return target instanceof HTMLElement && !isTextEntryTarget(target) && clicked !== null && target.contains(clicked);
     };
     const onKeyD = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && playbackShortcutRef.current.mainView === 'arrange') {
+        // Focused controls and virtual piano keys own Space. Only the page,
+        // piano-roll grid and ruler use it as a transport shortcut.
+        if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey
+          || isInteractiveTarget(e.target)
+          || (e.target instanceof HTMLElement && e.target.closest('[role="dialog"], a[href]'))) return;
+        e.preventDefault();
+        if (!e.repeat) playbackShortcutRef.current.toggle();
+        return;
+      }
       if (isInteractiveTarget(e.target)) {
         // Escape belongs to the open panel (it closes it), not to sustain.
         if (e.key === 'Escape' || !isClickFocusedControl(e.target)) return;
@@ -490,6 +504,7 @@ const AppInner: React.FC = () => {
     };
     const onKeyU = (e: KeyboardEvent) => {
       const wasPlaying = activeKeyParamsRef.current.has(e.code) || activeKeysRef.current.has(e.code);
+      if (e.code === 'Space' && playbackShortcutRef.current.mainView === 'arrange' && !wasPlaying) return;
       if (isInteractiveTarget(e.target) && !wasPlaying) return;
       handleKeyUpRef.current(e as globalThis.KeyboardEvent);
       stopNoteByCodeRef.current(e.code);
@@ -526,8 +541,9 @@ const AppInner: React.FC = () => {
   const editArrangement = useCallback((events: RecordedEvent[]) => {
     if (sessionRef.current.active || isPlayingBack) return;
     loadMidiEvents(events, pausePlayback);
+    recordingDispatch({ type: 'SET_ELAPSED', elapsed: Math.min(elapsedTime, events.reduce((end, event) => Math.max(end, event.time), 0)) });
     void saveEdits(events);
-  }, [sessionRef, isPlayingBack, loadMidiEvents, pausePlayback, saveEdits]);
+  }, [sessionRef, isPlayingBack, elapsedTime, loadMidiEvents, pausePlayback, recordingDispatch, saveEdits]);
 
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -689,7 +705,9 @@ const AppInner: React.FC = () => {
         )}
         {mainView === 'arrange' && (
           <PianoRoll events={isRecording ? recordingRef.current : recordedEvents} currentTime={elapsedTime} bpm={bpm}
-            isRecording={isRecording} isPlaying={isPlayingBack} autoCapture={autoCapture} onAutoCapture={setAutoCapture}
+            isRecording={isRecording} isRecordingPaused={isRecordingPaused} isPlaying={isPlayingBack}
+            autoCapture={autoCapture} autoCaptureMode={autoCaptureMode} onAutoCapture={setAutoCapture} onAutoCaptureMode={setAutoCaptureMode}
+            onSeek={time => { if (!sessionRef.current.active) seekPlayback(time); }}
             onChange={editArrangement} onStopRecording={stopRecording} onExport={handleExportMidi} />
         )}
       </div>

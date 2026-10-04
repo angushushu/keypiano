@@ -12,6 +12,7 @@ interface UseTakeHistoryProps {
     isRecording: boolean;
     recordingStartTime: number;
     recordingRef: React.MutableRefObject<RecordedEvent[]>;
+    readRecordingTime: () => number;
     /** True while nothing is loaded yet, so the last take may be restored. */
     hasEvents: boolean;
     loadEvents: (events: RecordedEvent[]) => void;
@@ -21,6 +22,7 @@ export function useTakeHistory({
     isRecording,
     recordingStartTime,
     recordingRef,
+    readRecordingTime,
     hasEvents,
     loadEvents,
 }: UseTakeHistoryProps) {
@@ -30,7 +32,7 @@ export function useTakeHistory({
     // storage (private mode, disabled site data), so callers can warn instead.
     const [isStorageAvailable, setIsStorageAvailable] = useState<boolean | null>(null);
 
-    const recordingTakeRef = useRef<{ id: string; createdAt: number; startTime: number } | null>(null);
+    const recordingTakeRef = useRef<{ id: string; createdAt: number } | null>(null);
     const editingTakeRef = useRef<{ id: string; createdAt: number } | null>(null);
     const hasEventsRef = useRef(hasEvents);
     const isRecordingRef = useRef(isRecording);
@@ -64,10 +66,10 @@ export function useTakeHistory({
     const snapshotRecording = useCallback(() => {
         const current = recordingTakeRef.current;
         if (!current || recordingRef.current.length === 0) return Promise.resolve(false);
-        const endTime = Date.now() - current.startTime;
+        const endTime = readRecordingTime();
         const events = closeOpenNotes([...recordingRef.current], endTime);
         return save({ id: current.id, kind: 'recording', createdAt: current.createdAt, ...summarizeEvents(events), events });
-    }, [recordingRef, save]);
+    }, [recordingRef, readRecordingTime, save]);
 
     // Restore the most recent take once, so a refresh lands where the player left off.
     useEffect(() => {
@@ -108,7 +110,7 @@ export function useTakeHistory({
             }
             return;
         }
-        recordingTakeRef.current ??= { id: createTakeId(), createdAt: Date.now(), startTime: recordingStartTime };
+        recordingTakeRef.current ??= { id: createTakeId(), createdAt: Date.now() };
         editingTakeRef.current = null;
         const interval = window.setInterval(() => { void snapshotRecording(); }, AUTOSAVE_INTERVAL_MS);
         return () => window.clearInterval(interval);

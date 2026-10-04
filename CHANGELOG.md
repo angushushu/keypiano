@@ -8,6 +8,22 @@ Entries before 1.1.0 are summarised from the commit history.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-04
+
+### Added
+
+- Space to play/pause in Arrange, preserving focused controls and virtual-key
+  playing, with repeat presses and recording/drag sessions guarded.
+- Independent pitch-axis zoom in Arrange, preserving the visible pitch centre,
+  with a Fit notes control to show the arrangement's full pitch range.
+- Direct right-click note deletion in Arrange, preserving right-drag selection
+  and undo for deleted notes.
+- Playback seeking by clicking/dragging the ruler or playhead, with keyboard
+  controls and correct held-voice resumption when seeking during playback.
+- Continuous and while-keys-are-held automatic recording modes. The latter
+  preserves held durations and chords while excluding gaps with no keys held;
+  local snapshots use the same musical clock.
+
 ## [1.6.0] - 2026-10-01
 
 ### Added

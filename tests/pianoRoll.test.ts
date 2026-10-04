@@ -3,12 +3,34 @@ import { Midi } from '@tonejs/midi';
 import { eventsToRollNotes, moveRollNote, moveRollNotes, resizeRollNote, resizeRollNotes, rollNotesToEvents, selectRollNotes, snapTime } from '../services/pianoRoll';
 import { generateMidiFile, parseMidiFile } from '../services/midiIO';
 import { closeOpenNotes, sanitizeEvents } from '../services/takeStore';
-import { computeActiveEvents } from '../hooks/useAudioScheduler';
+import { computeActiveEvents, getPlaybackCursor } from '../hooks/useAudioScheduler';
 import type { RecordedEvent } from '../types';
 
 const event = (type: 'on' | 'off', time: number, noteId?: string): RecordedEvent => ({ type, time, note: 'C4', transpose: 0, instrumentId: 'drawbar_organ', ...(noteId ? { noteId } : {}) });
 
 export const pianoRollTests: { name: string; run: () => void | Promise<void> }[] = [
+    { name: 'playback seeking clamps positions to the piece and accepts empty recordings', run: () => {
+        const events = [event('on', 0, 'one'), event('off', 1000, 'one')];
+        assert.equal(getPlaybackCursor(events, -200).time, 0);
+        assert.equal(getPlaybackCursor(events, Infinity).time, 0);
+        assert.equal(getPlaybackCursor(events, 3000).time, 1000);
+        assert.equal(getPlaybackCursor([], 500).time, 0);
+    } },
+    { name: 'seeking to a note onset resumes only earlier held voices', run: () => {
+        const events = [event('on', 0, 'long'), event('on', 500, 'short'), event('off', 700, 'short'), event('off', 1000, 'long')];
+        const cursor = getPlaybackCursor(events, 500);
+        assert.equal(cursor.index, 1);
+        assert.deepEqual([...cursor.active.values()].map(evt => evt.noteId), ['long']);
+        assert.equal(events[cursor.index].noteId, 'short', 'the onset at the cursor is scheduled once');
+        assert.equal(getPlaybackCursor(events, 0).active.size, 0);
+    } },
+    { name: 'seeking inside crossing unisons restores the correct remaining voices', run: () => {
+        const events = [event('on', 0, 'long'), event('on', 500, 'short'), event('off', 700, 'short'), event('off', 1000, 'long')];
+        assert.deepEqual([...getPlaybackCursor(events, 600).active.values()].map(evt => evt.noteId), ['long', 'short']);
+        const cursor = getPlaybackCursor(events, 800);
+        assert.equal(cursor.index, 3);
+        assert.deepEqual([...cursor.active.values()].map(evt => evt.noteId), ['long']);
+    } },
     { name: 'region selection intersects note bars in either drag direction', run: () => {
         const notes = eventsToRollNotes([
             event('on', 0, 'long'), event('off', 1000, 'long'),

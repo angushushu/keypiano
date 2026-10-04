@@ -28,6 +28,9 @@ interface TranslationSet {
     title: string; auto: string; ready: string; recording: string; editing: string;
     hint: string; empty: string; snap: string; free: string; undo: string; redo: string;
     delete: string; stop: string; zoom: string; grid: string; note: string; resize: string; selected: string;
+    recordMode: string; continuous: string; pressed: string; continuousHint: string; pressedHint: string;
+    paused: string; readyPressed: string; position: string; seekHint: string;
+    pitchZoom: string; fit: string; fitHint: string;
   };
   toggleStave: string;
   toggleKeyboard: string;
@@ -173,11 +176,17 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     arrange: {
       title: 'Arrange', auto: 'Auto record', ready: 'Play to record · appends to the end',
       recording: 'Recording · stop to edit', editing: 'Editor',
-      hint: 'Click to add · right-drag to select · Shift+click to toggle selection · drag to move · right edge to resize · Delete to remove · Ctrl+Z to undo',
+      hint: 'Click to add · right-click a note to delete · right-drag to select · Shift+click to toggle selection · drag to move · right edge to resize · drag the ruler to seek · Space to play/pause · Ctrl+Z to undo',
       empty: 'Play your keyboard or click the grid to add your first note.',
       snap: 'Snap', free: 'Free', undo: 'Undo', redo: 'Redo', delete: 'Delete selected notes',
-      stop: 'Stop recording', zoom: 'Zoom', grid: 'Piano roll',
+      stop: 'Stop recording', zoom: 'Time zoom', grid: 'Piano roll',
       note: '{note} · {start}s · {duration}s', resize: 'Resize selected notes', selected: '{count} notes selected',
+      recordMode: 'Auto record mode', continuous: 'Continuous', pressed: 'While keys are held',
+      continuousHint: 'The first note starts a continuous recording, including pauses between notes.',
+      pressedHint: 'Time advances while any key is held; releasing all keys pauses the clock until the next note.',
+      paused: 'Clock paused · play to continue, stop to edit', readyPressed: 'Play to record · release all keys to pause the clock',
+      position: 'Playback position (seconds)', seekHint: 'Click or drag to seek · arrow keys to adjust · Home/End to jump',
+      pitchZoom: 'Pitch zoom', fit: 'Fit notes', fitHint: 'Show the full pitch range of this arrangement.',
     },
     loading: 'Loading Sounds...',
     aboutTitle: 'About KeyPiano',
@@ -235,7 +244,7 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
       ShiftLeft: 'Raise left-hand notes by one semitone while held',
       ShiftRight: 'Mapped performance key',
       ControlLeft: 'Lower left-hand notes by one semitone while held',
-      Space: 'Play mapped spacebar note'
+      Space: 'Play or pause in Arrange; focused virtual keys play their note'
     },
     shortcuts: {
       title: 'Keyboard Shortcuts',
@@ -360,11 +369,17 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
     arrange: {
       title: '编曲', auto: '自动录入', ready: '开始弹奏即可录入 · 接在已有音符末尾',
       recording: '正在录入 · 停止后可编辑', editing: '编辑模式',
-      hint: '点空白处添加 · 右键拖拽框选 · Shift+点击增减选择 · 拖动移动 · 拖右边缘改长度 · Delete 删除 · Ctrl+Z 撤销',
+      hint: '点空白处添加 · 右键单击音符删除 · 右键拖拽框选 · Shift+点击增减选择 · 拖动移动 · 拖右边缘改长度 · 拖时间尺定位 · 空格播放/暂停 · Ctrl+Z 撤销',
       empty: '弹奏键盘，或点击网格，添加第一个音符。',
       snap: '吸附', free: '自由', undo: '撤销', redo: '重做', delete: '删除所选音符',
-      stop: '停止录入', zoom: '缩放', grid: '钢琴卷帘',
+      stop: '停止录入', zoom: '时间缩放', grid: '钢琴卷帘',
       note: '{note} · {start} 秒 · 时长 {duration} 秒', resize: '调整所选音符长度', selected: '已选择 {count} 个音符',
+      recordMode: '自动录入模式', continuous: '连续录入', pressed: '按键录入',
+      continuousHint: '按下第一个键后持续录入，保留音符之间的停顿。',
+      pressedHint: '有键按住时计时，全部松开后暂停；下次弹奏继续，保留长按时长。',
+      paused: '计时已暂停 · 弹奏继续，停止后可编辑', readyPressed: '开始弹奏即可录入 · 全部松开后暂停计时',
+      position: '播放位置（秒）', seekHint: '点击或拖动定位 · 方向键微调 · Home/End 跳到首尾',
+      pitchZoom: '音高缩放', fit: '适应音域', fitHint: '调整纵向缩放，让当前编曲的高低音全部显示在视野中。',
     },
     loading: '加载音色中...',
     aboutTitle: '关于 KeyPiano',
@@ -422,7 +437,7 @@ export const TRANSLATIONS: Record<Language, TranslationSet> = {
       ShiftLeft: '按住时把左手音符升高半音',
       ShiftRight: '参与演奏映射的按键',
       ControlLeft: '按住时把左手音符降低半音',
-      Space: '弹奏映射到空格键的音符'
+      Space: '编曲视图播放或暂停；聚焦虚拟琴键时弹奏该音'
     },
     shortcuts: {
       title: '快捷键',

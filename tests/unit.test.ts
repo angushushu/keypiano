@@ -19,6 +19,7 @@ import { findNextGate, isGateSatisfied, isWithinGateWindow, remainingNotes, with
 import { GUIDE_NOW, GUIDE_STEPS, approachLevel, buildPracticeGuide, guideFillOpacity, holdingEntries, nextPracticePitches, nowEntries, sameLevels, upcomingEntries } from '../services/practiceGuide';
 import { audioEngineTests } from './audioEngine.test';
 import { pianoRollTests } from './pianoRoll.test';
+import { recordingClockTests } from './recordingClock.test';
 
 type TestCase = {
   name: string;
@@ -778,7 +779,7 @@ test('the soft clipper is transparent at normal levels and never exceeds full sc
   for (let i = 1; i < size; i++) assert.ok(curve[i] >= curve[i - 1], 'the curve is monotonic');
 });
 
-tests.push(...audioEngineTests, ...pianoRollTests);
+tests.push(...audioEngineTests, ...pianoRollTests, ...recordingClockTests);
 
 for (const { name, run } of tests) {
   await run();

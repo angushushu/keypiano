@@ -58,6 +58,15 @@ export function computeActiveEvents(events: RecordedEvent[], upToMs: number): Ma
     return active;
 }
 
+/** Events exactly at the cursor remain scheduled, rather than resumed twice. */
+export function getPlaybackCursor(events: RecordedEvent[], requestedTime: number) {
+    const duration = events.reduce((end, evt) => Math.max(end, evt.time), 0);
+    const time = Number.isFinite(requestedTime) ? Math.max(0, Math.min(duration, requestedTime)) : 0;
+    let index = 0;
+    while (index < events.length && events[index].time < time) index++;
+    return { time, duration, index, active: computeActiveEvents(events.slice(0, index), time) };
+}
+
 /** Keys that play `evt`: the key it was recorded with, or the auto-fingered key plus its modifier. */
 export function keysForEvent(evt: RecordedEvent, assignments: Map<RecordedEvent, KeyAssignment>): string[] {
     if (evt.code) return [evt.code];
@@ -265,30 +274,20 @@ export function useAudioScheduler({
         playbackTempTransposeRef.current = 0;
     };
 
-    const startPlayback = () => {
+    const startPlayback = (fromMs = elapsedTime, restartAtEnd = true) => {
         if (recordingRef.current.length === 0) return;
         audioEngine.resumeIfSuspended();
-    
-        const lastEventTime = recordingRef.current[recordingRef.current.length - 1].time;
-    
-        if (elapsedTime >= lastEventTime) {
-            setElapsedTime(0);
-            playbackStartOffsetRef.current = 0;
-            audioCursorRef.current = 0;
-            lastStaveIndexRef.current = 0;
-        } else {
-            playbackStartOffsetRef.current = elapsedTime;
-            let idx = 0;
-            while(idx < recordingRef.current.length && recordingRef.current[idx].time < elapsedTime) idx++;
-            audioCursorRef.current = idx;
-            lastStaveIndexRef.current = idx;
-            if (!isPracticeModeRef.current) {
-                // Events at the cursor are still scheduled below. Resume only
-                // earlier notes, otherwise a note at time zero starts twice.
-                computeActiveEvents(recordingRef.current.slice(0, idx), elapsedTime).forEach((evt) => {
-                    audioEngine.playNote(evt.note, evt.transpose, evt.velocity, 0, evt.noteId);
-                });
-            }
+
+        const cursor = getPlaybackCursor(recordingRef.current, fromMs);
+        const position = restartAtEnd && cursor.time >= cursor.duration ? getPlaybackCursor(recordingRef.current, 0) : cursor;
+        setElapsedTime(position.time);
+        playbackStartOffsetRef.current = position.time;
+        audioCursorRef.current = position.index;
+        lastStaveIndexRef.current = position.index;
+        if (!isPracticeModeRef.current) {
+            position.active.forEach(evt => {
+                audioEngine.playNote(evt.note, evt.transpose, evt.velocity, 0, evt.noteId);
+            });
         }
     
         audioContextStartTimeRef.current = audioEngine.currentTime;
@@ -308,6 +307,15 @@ export function useAudioScheduler({
     const togglePlayback = () => {
         if (isPlayingBack) pausePlayback();
         else startPlayback();
+    };
+
+    const seekPlayback = (requestedTime: number) => {
+        const wasPlaying = isPlayingRef.current;
+        const cursor = getPlaybackCursor(recordingRef.current, requestedTime);
+        if (wasPlaying) pausePlayback();
+        setElapsedTime(cursor.time);
+        playbackStartOffsetRef.current = cursor.time;
+        if (wasPlaying && cursor.time < cursor.duration) startPlayback(cursor.time, false);
     };
 
     const changePlaybackSpeedAnchor = (newSpeed: number) => {
@@ -339,7 +347,7 @@ export function useAudioScheduler({
     }, []);
 
     const runAudioScheduler = () => {
-        if (recordingRef.current.length === 0) return;
+        if (!isPlayingRef.current || recordingRef.current.length === 0) return;
         applyWaitGate();
 
         const currentCtxTime = audioEngine.currentTime;
@@ -385,7 +393,7 @@ export function useAudioScheduler({
 
     const visualLoop = () => {
         const events = recordingRef.current;
-        if (events.length === 0 || !workerRef.current) return;
+        if (!isPlayingRef.current || events.length === 0 || !workerRef.current) return;
         applyWaitGate();
 
         const currentTrackTimeMs = readTrackTimeMs();
@@ -455,6 +463,7 @@ export function useAudioScheduler({
         isPlayingBack,
         togglePlayback,
         pausePlayback,
+        seekPlayback,
         changePlaybackSpeedAnchor,
         waitingRemaining,
         registerUserNote,

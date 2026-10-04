@@ -59,9 +59,15 @@ These work anywhere on the page (the same list is in the in-app **About** dialog
 | `F12` | Reset transpose and octave |
 | Left `Shift` (`#L`, held) | Raise main-block notes by one semitone |
 | Left `Ctrl` (`bL`, held) | Lower main-block notes by one semitone |
-| `Space` | Play the note mapped to the spacebar |
+| `Space` | Play or pause playback in Arrange |
 
 Octave and transpose keys (`F1`–`F4`) are ignored while recording or playing back, so a take always keeps one consistent mapping.
+
+In Arrange, Space controls playback from the page, piano-roll grid or time ruler.
+It is ignored during recording or a drag, and holding it does not repeatedly
+toggle playback. Focused inputs, buttons and selectors retain their normal
+Space actions; focused virtual keyboard or piano keys still play their note.
+The three built-in performance maps do not assign a note to the spacebar.
 
 ## Recording and MIDI
 
@@ -82,11 +88,18 @@ bottom virtual piano starts hidden; its toolbar toggle can show it, and this
 choice is independent of other views. With
 **Auto record** enabled (the default), the first computer-keyboard, on-screen
 piano or MIDI note starts recording immediately. Held notes grow into bars;
-new performances append at the end of the current piece. Use **Stop recording**
+new performances append at the end of the current piece. Choose **Continuous**
+to retain the pauses between notes, or **While keys are held** to pause the
+musical clock whenever all computer/on-screen/MIDI keys are released. The
+latter keeps real held durations and overlapping chords, while omitting idle
+gaps between phrases; its paused state continues the same locally saved take.
+Use **Stop recording**
 or `F10` to finish, then edit. Recording and playback lock editing.
 
 - Click an empty cell to add a note. Drag a note to change its onset and pitch;
   drag its right edge to change its length.
+- Right-click a note to delete that note directly, with undo. Right-dragging
+  from a note selects a region instead; cancelling a drag never deletes it.
 - Right-drag a region to select every note bar touching it. Shift+right-drag
   adds to the selection, Shift+click toggles individual notes, and Ctrl/Cmd+A
   selects all. Selected notes move together when you drag any one of them;
@@ -98,10 +111,18 @@ or `F10` to finish, then edit. Recording and playback lock editing.
 - Undo/Redo buttons and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Ctrl+Y retain up to 100
   edits in the current editing session. Importing, recording or refreshing
   starts a new undo history.
-- Choose free timing or 1/4–1/32 snapping, zoom the time axis, and scroll to
-  other pitches or measures. Recorded timing stays intact until an edit snaps it.
+- Choose free timing or 1/4–1/32 snapping and zoom the time and pitch axes
+  independently. Pitch zoom keeps the visible pitch centre in place; **Fit notes**
+  shows the arrangement's full pitch range. Scroll to other pitches or measures.
+  At small row heights, octave labels remain visible and note details are
+  available on hover. Recorded timing stays intact until an edit snaps it.
 - Play to audition, then download the edited piece with MIDI export. Existing
   recordings and imported MIDI can be edited in the same view.
+- Click or drag the time ruler or playhead to choose the playback position.
+  A drag previews its position and applies it on release; playback resumes at
+  the chosen time if it was already running. Escape cancels the drag. With the
+  ruler focused, arrow keys adjust the position, Shift+arrows move a measure,
+  and Home/End jump to the beginning/end. Seeking is disabled during recording.
 
 Edits are saved locally as a separate take so the original remains in **Recent
 recordings**. The ruler uses 4/4 and the toolbar BPM; changing BPM changes the

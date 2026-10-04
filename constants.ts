@@ -206,7 +206,7 @@ export const FULL_ROW_4: KeyDef[] = [
 ];
 
 export const FULL_ROW_5: KeyDef[] = [
-  { code: 'ControlLeft', label: '', customLabel: 'bL', description: 'Lower left-hand notes by one semitone while held', width: 1.25, isModifier: true }, { code: 'MetaLeft', label: 'Win', width: 1.25, isDummy: true }, { code: 'AltLeft', label: 'Alt', width: 1.25, isDummy: true }, { code: 'Space', label: 'KeyPiano', description: 'Play mapped spacebar note', width: 6.25 }, { code: 'AltRight', label: 'Alt', width: 1.25, isDummy: true }, { code: 'MetaRight', label: 'Win', width: 1.25, isDummy: true }, { code: 'ContextMenu', label: 'Menu', width: 1.25, isDummy: true }, { code: 'ControlRight', label: 'Ctrl', width: 1.25, isDummy: true },
+  { code: 'ControlLeft', label: '', customLabel: 'bL', description: 'Lower left-hand notes by one semitone while held', width: 1.25, isModifier: true }, { code: 'MetaLeft', label: 'Win', width: 1.25, isDummy: true }, { code: 'AltLeft', label: 'Alt', width: 1.25, isDummy: true }, { code: 'Space', label: 'KeyPiano', description: 'Play or pause in Arrange; focused virtual keys play their note', width: 6.25 }, { code: 'AltRight', label: 'Alt', width: 1.25, isDummy: true }, { code: 'MetaRight', label: 'Win', width: 1.25, isDummy: true }, { code: 'ContextMenu', label: 'Menu', width: 1.25, isDummy: true }, { code: 'ControlRight', label: 'Ctrl', width: 1.25, isDummy: true },
   { code: 'dummy_5_1', label: '', width: 0.5, isDummy: true },
   { code: 'ArrowLeft', label: '←' }, { code: 'ArrowDown', label: '↓' }, { code: 'ArrowRight', label: '→' },
   { code: 'dummy_5_2', label: '', width: 0.5, isDummy: true },

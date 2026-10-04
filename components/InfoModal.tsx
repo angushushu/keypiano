@@ -9,7 +9,7 @@ export interface InfoModalProps {
 }
 
 /**
- * Function keys documented in the About dialog. Descriptions come from
+ * Keyboard shortcuts documented in the About dialog. Descriptions come from
  * `t.keyDescriptions` so the modal and the on-screen key tooltips cannot drift.
  */
 const SHORTCUT_KEYS: { code: string; keys: string }[] = [
@@ -22,6 +22,7 @@ const SHORTCUT_KEYS: { code: string; keys: string }[] = [
   { code: 'F7', keys: 'F7' },
   { code: 'F8', keys: 'F8' },
   { code: 'F9', keys: 'F9' },
+  { code: 'Space', keys: 'Space' },
   { code: 'F10', keys: 'F10' },
   { code: 'F11', keys: 'F11' },
   { code: 'F12', keys: 'F12' },
